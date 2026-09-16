@@ -74,7 +74,7 @@ export default function Navbar() {
               </div>
             </Link>
 
-            {/* Search bar */}
+            {/* Search bar — desktop */}
             <div className="hidden md:flex flex-1 max-w-xl">
               <BuscadorProductos variant="desktop" />
             </div>
@@ -169,6 +169,13 @@ export default function Navbar() {
             </div>
           </div>
 
+          {/* Search bar — mobile. Va acá y no adentro del menú hamburguesa:
+              buscar es la acción principal del catálogo y no puede costar dos
+              toques. */}
+          <div className="md:hidden pb-3">
+            <BuscadorProductos variant="mobile" />
+          </div>
+
           {/* Nav links desktop */}
           <nav className="hidden md:flex items-center gap-1 pb-2">
             {navLinks.map(link => (
@@ -183,11 +190,6 @@ export default function Navbar() {
         {/* Mobile menu — solo muestra Ofertas y cuenta (el resto lo cubre el BottomNav) */}
         {menuOpen && (
           <div className="md:hidden bg-brand-purple-900 border-t border-brand-purple-700 px-4 py-4">
-            {/* Buscador */}
-            <div className="mb-4">
-              <BuscadorProductos variant="mobile" onNavigate={() => setMenuOpen(false)} />
-            </div>
-
             {/* Ofertas — link rápido */}
             <Link href="/catalogo?cat=ofertas" onClick={() => setMenuOpen(false)}
               className="flex items-center gap-3 bg-red-500/20 text-red-300 px-4 py-3 rounded-xl text-sm font-semibold mb-3">
