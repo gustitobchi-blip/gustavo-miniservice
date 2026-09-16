@@ -94,7 +94,13 @@ function LoginForm() {
             </div>
 
             <div>
-              <label className="block text-xs font-semibold text-gray-600 mb-1.5">Contraseña</label>
+              <div className="flex items-center justify-between mb-1.5">
+                <label className="block text-xs font-semibold text-gray-600">Contraseña</label>
+                <Link href="/cuenta/recuperar"
+                  className="text-xs font-semibold text-brand-purple-700 hover:text-brand-purple-900 transition-colors">
+                  ¿La olvidaste?
+                </Link>
+              </div>
               <div className="relative">
                 <Lock className="absolute left-3 top-1/2 -translate-y-1/2 w-4 h-4 text-gray-400" />
                 <input name="password" type={showPass ? 'text' : 'password'}

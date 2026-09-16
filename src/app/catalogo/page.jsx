@@ -2,9 +2,11 @@
 
 import { useState, useEffect, useRef, useCallback, Suspense } from 'react';
 import { useSearchParams, useRouter } from 'next/navigation';
-import { ChevronDown, Tag, LayoutGrid } from 'lucide-react';
+import { ChevronDown, Tag, LayoutGrid, PackageCheck, X, TrendingUp } from 'lucide-react';
 import { categorias } from '@/data/mockData';
-import { buscarProductos } from '@/lib/productos';
+import {
+  buscarProductos, buscarSimilares, busquedasPopulares, registrarBusqueda,
+} from '@/lib/productos';
 import { POR_PAGINA } from '@/lib/productos-shared';
 import ProductCard from '@/components/catalog/ProductCard';
 import BuscadorProductos from '@/components/catalog/BuscadorProductos';
@@ -20,19 +22,29 @@ function CatalogoContent() {
   const cat    = searchParams.get('cat') || '';
   const orden  = searchParams.get('orden') || 'destacados';
   const pagina = Math.max(1, Number(searchParams.get('pag')) || 1);
-  const soloOfertas = cat === 'ofertas';
+  const precioMin    = searchParams.get('min') || '';
+  const precioMax    = searchParams.get('max') || '';
+  const soloConStock = searchParams.get('stock') === '1';
+  const soloOfertas  = cat === 'ofertas';
 
   const [datos, setDatos]       = useState({ items: [], total: 0, totalPaginas: 1 });
   const [cargando, setCargando] = useState(true);
+  const [similares, setSimilares] = useState([]);
+  const [populares, setPopulares] = useState([]);
 
-  // El input se maneja local para que no lagee; la URL se actualiza al frenar.
-  const [texto, setTexto] = useState(q);
-  const ultimoPush = useRef(q);
+  // Los inputs se manejan locales para que no lagueen; la URL se actualiza al
+  // frenar de tipear.
+  const [texto, setTexto]       = useState(q);
+  const [minLocal, setMinLocal] = useState(precioMin);
+  const [maxLocal, setMaxLocal] = useState(precioMax);
+  const ultimoPush       = useRef(q);
+  const ultimoPrecio     = useRef(`${precioMin}|${precioMax}`);
+  const ultimaRegistrada = useRef('');
 
   const actualizar = useCallback((cambios) => {
     const p = new URLSearchParams(searchParams.toString());
     Object.entries(cambios).forEach(([clave, valor]) => {
-      const vacio = valor === '' || valor == null
+      const vacio = valor === '' || valor == null || valor === false
         || (clave === 'pag' && Number(valor) === 1)
         || (clave === 'orden' && valor === 'destacados');
       if (vacio) p.delete(clave);
@@ -52,13 +64,37 @@ function CatalogoContent() {
     return () => clearTimeout(timer);
   }, [texto, q, actualizar]);
 
-  // Si la URL cambió por afuera (botón atrás, link del menú), se acomoda el input.
+  // Si la URL cambió por afuera (botón atrás, buscador del navbar), se acomodan
+  // los inputs.
   useEffect(() => {
     if (q !== ultimoPush.current) {
       setTexto(q);
       ultimoPush.current = q;
     }
   }, [q]);
+
+  // Mismo debounce para el rango de precio: escribir "1500" no son 4 consultas.
+  useEffect(() => {
+    const actual = `${minLocal}|${maxLocal}`;
+    if (actual === `${precioMin}|${precioMax}`) return;
+    const timer = setTimeout(() => {
+      ultimoPrecio.current = actual;
+      actualizar({ min: minLocal, max: maxLocal, pag: 1 });
+    }, 600);
+    return () => clearTimeout(timer);
+  }, [minLocal, maxLocal, precioMin, precioMax, actualizar]);
+
+  useEffect(() => {
+    const actual = `${precioMin}|${precioMax}`;
+    if (actual !== ultimoPrecio.current) {
+      setMinLocal(precioMin);
+      setMaxLocal(precioMax);
+      ultimoPrecio.current = actual;
+    }
+  }, [precioMin, precioMax]);
+
+  // Lo más buscado por el resto de los clientes, para los chips.
+  useEffect(() => { busquedasPopulares(8).then(setPopulares); }, []);
 
   // Una página de productos por vez, filtrada y ordenada en Supabase.
   useEffect(() => {
@@ -67,16 +103,33 @@ function CatalogoContent() {
 
     const catNombre = soloOfertas ? '' : (categorias.find(c => c.slug === cat)?.nombre || '');
 
-    buscarProductos({ q, categoria: catNombre, soloOfertas, orden, pagina })
-      .then(resultado => {
-        // Si mientras tanto cambió el filtro, esta respuesta ya no sirve.
-        if (cancelado) return;
-        setDatos(resultado);
-        setCargando(false);
-      });
+    buscarProductos({
+      q, categoria: catNombre, soloOfertas, soloConStock,
+      precioMin, precioMax, orden, pagina,
+    }).then(resultado => {
+      // Si mientras tanto cambió el filtro, esta respuesta ya no sirve.
+      if (cancelado) return;
+      setDatos(resultado);
+      setCargando(false);
+
+      // Queda registrado qué se buscó y cuántos resultados hubo. Las de cero
+      // son la lista de lo que la gente pide y no está publicado.
+      if (q && q !== ultimaRegistrada.current) {
+        ultimaRegistrada.current = q;
+        registrarBusqueda(q, resultado.total);
+      }
+    });
 
     return () => { cancelado = true; };
-  }, [q, cat, orden, pagina, soloOfertas]);
+  }, [q, cat, orden, pagina, soloOfertas, soloConStock, precioMin, precioMax]);
+
+  // Plan B: si la búsqueda exacta no encontró nada, se busca por parecido.
+  useEffect(() => {
+    if (!q || cargando || datos.total > 0) { setSimilares([]); return; }
+    let cancelado = false;
+    buscarSimilares(q, 8).then(r => { if (!cancelado) setSimilares(r); });
+    return () => { cancelado = true; };
+  }, [q, cargando, datos.total]);
 
   const irAPagina = nueva => {
     actualizar({ pag: nueva });
@@ -85,11 +138,19 @@ function CatalogoContent() {
 
   const elegirCategoria = slug => actualizar({ cat: slug, pag: 1 });
 
+  const buscar = termino => {
+    setTexto(termino);
+    ultimoPush.current = termino;
+    actualizar({ q: termino, pag: 1 });
+  };
+
   const limpiarTodo = () => {
-    setTexto('');
-    ultimoPush.current = '';
+    setTexto(''); setMinLocal(''); setMaxLocal('');
+    ultimoPush.current = ''; ultimoPrecio.current = '|';
     router.replace('/catalogo', { scroll: false });
   };
+
+  const hayFiltros = !!(precioMin || precioMax || soloConStock);
 
   const catActual = categorias.find(c => c.slug === cat);
   const tituloActual = soloOfertas ? '🔥 Ofertas del día'
@@ -147,13 +208,58 @@ function CatalogoContent() {
             </div>
           </div>
 
-          {/* Buscador — vive acá, que es donde se muestran los productos */}
           <BuscadorProductos
             valor={texto}
             onChange={setTexto}
             placeholder="Buscar productos..."
-            className="mb-4"
+            className="mb-3"
           />
+
+          {/* Filtros de precio y stock */}
+          <div className="flex flex-wrap items-center gap-2 mb-4">
+            <div className="flex items-center gap-1.5 bg-white border border-gray-200 rounded-xl px-3 py-1.5">
+              <span className="text-xs font-semibold text-gray-400">$</span>
+              <input type="number" inputMode="numeric" min="0" placeholder="mín"
+                value={minLocal} onChange={e => setMinLocal(e.target.value)}
+                className="w-16 text-sm bg-transparent focus:outline-none" />
+              <span className="text-gray-300">–</span>
+              <input type="number" inputMode="numeric" min="0" placeholder="máx"
+                value={maxLocal} onChange={e => setMaxLocal(e.target.value)}
+                className="w-16 text-sm bg-transparent focus:outline-none" />
+            </div>
+
+            <button onClick={() => actualizar({ stock: soloConStock ? '' : '1', pag: 1 })}
+              className={`flex items-center gap-1.5 px-3 py-2 rounded-xl text-xs font-bold transition-all border ${
+                soloConStock
+                  ? 'bg-green-600 border-green-600 text-white'
+                  : 'bg-white border-gray-200 text-gray-600 hover:border-green-300 hover:text-green-700'
+              }`}>
+              <PackageCheck className="w-3.5 h-3.5" />
+              Solo con stock
+            </button>
+
+            {hayFiltros && (
+              <button onClick={() => { setMinLocal(''); setMaxLocal(''); actualizar({ min: '', max: '', stock: '', pag: 1 }); }}
+                className="flex items-center gap-1 px-3 py-2 rounded-xl text-xs font-semibold text-gray-500 hover:text-red-600 transition-colors">
+                <X className="w-3.5 h-3.5" />Limpiar filtros
+              </button>
+            )}
+          </div>
+
+          {/* Lo más buscado — sólo mientras no hay una búsqueda activa */}
+          {!q && populares.length > 0 && (
+            <div className="flex items-center gap-2 flex-wrap mb-4">
+              <span className="inline-flex items-center gap-1 text-xs font-bold text-gray-400 uppercase tracking-wider">
+                <TrendingUp className="w-3.5 h-3.5" />Lo más buscado
+              </span>
+              {populares.map(termino => (
+                <button key={termino} onClick={() => buscar(termino)}
+                  className="px-3 py-1 rounded-full bg-brand-purple-50 text-brand-purple-700 text-xs font-semibold hover:bg-brand-purple-100 transition-colors">
+                  {termino}
+                </button>
+              ))}
+            </div>
+          )}
 
           {/* Categorías mobile */}
           <div className="md:hidden flex gap-2 overflow-x-auto pb-2 mb-4 scroll-x-hidden -mx-4 px-4">
@@ -200,14 +306,28 @@ function CatalogoContent() {
               />
             </>
           ) : (
-            <div className="text-center py-20">
-              <span className="text-6xl">😕</span>
-              <p className="text-gray-500 font-medium mt-4">
-                {q ? `No encontramos productos con “${q}”` : 'No encontramos productos'}
-              </p>
-              <button onClick={limpiarTodo} className="mt-4 btn-primary text-sm">
-                Ver todos los productos
-              </button>
+            <div className="py-12">
+              <div className="text-center">
+                <span className="text-6xl">😕</span>
+                <p className="text-gray-500 font-medium mt-4">
+                  {q ? `No encontramos productos con “${q}”` : 'No encontramos productos'}
+                </p>
+                <button onClick={limpiarTodo} className="mt-4 btn-primary text-sm">
+                  Ver todos los productos
+                </button>
+              </div>
+
+              {/* Búsqueda por parecido: rescata los errores de tipeo */}
+              {similares.length > 0 && (
+                <div className="mt-10">
+                  <p className="text-center text-gray-600 text-sm mb-5">
+                    ¿Quisiste decir alguno de estos?
+                  </p>
+                  <div className="grid grid-cols-2 sm:grid-cols-2 lg:grid-cols-3 xl:grid-cols-4 gap-4 fade-in">
+                    {similares.map(p => <ProductCard key={p.id} producto={p} />)}
+                  </div>
+                </div>
+              )}
             </div>
           )}
         </div>
