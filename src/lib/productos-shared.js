@@ -81,9 +81,34 @@ export function normalizar(p) {
   };
 }
 
-// PostgREST corta en 1000 filas por request, así que hay que paginar.
-export const PAGINA = 1000;
-export const MAX_PAGINAS = 20;
+export function formatPrecio(precio) {
+  return new Intl.NumberFormat('es-AR', {
+    style: 'currency', currency: 'ARS',
+    minimumFractionDigits: 0, maximumFractionDigits: 0,
+  }).format(precio);
+}
+
+// Cuántos productos se traen por vez. Antes se bajaba la tabla entera (~2300
+// filas) en cada visita y el navegador se trababa dibujándolas todas; ahora
+// cada pantalla pide sólo su página.
+export const POR_PAGINA       = 24;  // catálogo del cliente
+export const POR_PAGINA_ADMIN = 50;  // panel de gestión
+
+/**
+ * PostgREST arma el filtro `or` concatenando una string, así que una coma o un
+ * paréntesis escritos por el usuario rompen la query entera. Se limpian.
+ */
+export function limpiarBusqueda(q) {
+  return (q || '')
+    .replace(/[^\wÁÉÍÓÚÜÑáéíóúüñ\s.-]/g, ' ')
+    .replace(/\s+/g, ' ')
+    .trim();
+}
+
+/** Máximo 6 palabras: más que eso no afina la búsqueda y alarga la query al pedo. */
+export function terminosBusqueda(q) {
+  return limpiarBusqueda(q).split(' ').filter(Boolean).slice(0, 6);
+}
 
 export const COLUMNAS = [
   'id', 'codigo', 'descripcion', 'descripcion_web',

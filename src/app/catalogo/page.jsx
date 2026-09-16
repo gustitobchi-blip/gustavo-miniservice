@@ -1,53 +1,103 @@
 'use client';
 
-import { useState, useMemo, useEffect, Suspense } from 'react';
-import { useSearchParams } from 'next/navigation';
-import { Search, X, ChevronDown, Tag, LayoutGrid } from 'lucide-react';
+import { useState, useEffect, useRef, useCallback, Suspense } from 'react';
+import { useSearchParams, useRouter } from 'next/navigation';
+import { ChevronDown, Tag, LayoutGrid } from 'lucide-react';
 import { categorias } from '@/data/mockData';
-import { getProductos } from '@/lib/productos';
+import { buscarProductos } from '@/lib/productos';
+import { POR_PAGINA } from '@/lib/productos-shared';
 import ProductCard from '@/components/catalog/ProductCard';
+import BuscadorProductos from '@/components/catalog/BuscadorProductos';
+import Paginacion from '@/components/catalog/Paginacion';
 
 function CatalogoContent() {
   const searchParams = useSearchParams();
-  const catParam = searchParams.get('cat') || '';
+  const router       = useRouter();
 
-  const [productos, setProductos]     = useState([]);
-  const [cargando, setCargando]       = useState(true);
-  const [busqueda, setBusqueda]       = useState('');
-  const [catSeleccionada, setCat]     = useState(catParam === 'ofertas' ? '' : catParam);
-  const [orden, setOrden]             = useState('destacados');
-  const [soloOfertas, setSoloOfertas] = useState(catParam === 'ofertas');
+  // La URL es la fuente de verdad: así el botón "atrás" vuelve a la página y
+  // al filtro donde estabas, y un link con filtros aplicados se puede compartir.
+  const q      = searchParams.get('q') || '';
+  const cat    = searchParams.get('cat') || '';
+  const orden  = searchParams.get('orden') || 'destacados';
+  const pagina = Math.max(1, Number(searchParams.get('pag')) || 1);
+  const soloOfertas = cat === 'ofertas';
 
+  const [datos, setDatos]       = useState({ items: [], total: 0, totalPaginas: 1 });
+  const [cargando, setCargando] = useState(true);
+
+  // El input se maneja local para que no lagee; la URL se actualiza al frenar.
+  const [texto, setTexto] = useState(q);
+  const ultimoPush = useRef(q);
+
+  const actualizar = useCallback((cambios) => {
+    const p = new URLSearchParams(searchParams.toString());
+    Object.entries(cambios).forEach(([clave, valor]) => {
+      const vacio = valor === '' || valor == null
+        || (clave === 'pag' && Number(valor) === 1)
+        || (clave === 'orden' && valor === 'destacados');
+      if (vacio) p.delete(clave);
+      else p.set(clave, String(valor));
+    });
+    const qs = p.toString();
+    router.replace(qs ? `/catalogo?${qs}` : '/catalogo', { scroll: false });
+  }, [searchParams, router]);
+
+  // Debounce del buscador: 300ms sin teclas y recién ahí se consulta.
   useEffect(() => {
-    getProductos().then(data => { setProductos(data); setCargando(false); });
-  }, []);
+    if (texto === q) return;
+    const timer = setTimeout(() => {
+      ultimoPush.current = texto;
+      actualizar({ q: texto, pag: 1 });
+    }, 300);
+    return () => clearTimeout(timer);
+  }, [texto, q, actualizar]);
 
-  const filtrados = useMemo(() => {
-    let lista = [...productos];
-    if (busqueda.trim()) {
-      const q = busqueda.toLowerCase();
-      lista = lista.filter(p =>
-        p.nombre.toLowerCase().includes(q) ||
-        p.categoria.toLowerCase().includes(q)
-      );
+  // Si la URL cambió por afuera (botón atrás, link del menú), se acomoda el input.
+  useEffect(() => {
+    if (q !== ultimoPush.current) {
+      setTexto(q);
+      ultimoPush.current = q;
     }
-    if (catSeleccionada) {
-      const cat = categorias.find(c => c.slug === catSeleccionada);
-      if (cat) lista = lista.filter(p => p.categoriaId === cat.id || p.categoria === cat.nombre);
-    }
-    if (soloOfertas) lista = lista.filter(p => p.oferta);
-    switch (orden) {
-      case 'precio-asc':  lista.sort((a, b) => a.precio - b.precio);  break;
-      case 'precio-desc': lista.sort((a, b) => b.precio - a.precio);  break;
-      case 'nombre':      lista.sort((a, b) => a.nombre.localeCompare(b.nombre)); break;
-      default:            lista.sort((a, b) => (b.destacado ? 1 : 0) - (a.destacado ? 1 : 0));
-    }
-    return lista;
-  }, [productos, busqueda, catSeleccionada, soloOfertas, orden]);
+  }, [q]);
 
+  // Una página de productos por vez, filtrada y ordenada en Supabase.
+  useEffect(() => {
+    let cancelado = false;
+    setCargando(true);
+
+    const catNombre = soloOfertas ? '' : (categorias.find(c => c.slug === cat)?.nombre || '');
+
+    buscarProductos({ q, categoria: catNombre, soloOfertas, orden, pagina })
+      .then(resultado => {
+        // Si mientras tanto cambió el filtro, esta respuesta ya no sirve.
+        if (cancelado) return;
+        setDatos(resultado);
+        setCargando(false);
+      });
+
+    return () => { cancelado = true; };
+  }, [q, cat, orden, pagina, soloOfertas]);
+
+  const irAPagina = nueva => {
+    actualizar({ pag: nueva });
+    window.scrollTo({ top: 0, behavior: 'smooth' });
+  };
+
+  const elegirCategoria = slug => actualizar({ cat: slug, pag: 1 });
+
+  const limpiarTodo = () => {
+    setTexto('');
+    ultimoPush.current = '';
+    router.replace('/catalogo', { scroll: false });
+  };
+
+  const catActual = categorias.find(c => c.slug === cat);
   const tituloActual = soloOfertas ? '🔥 Ofertas del día'
-    : catSeleccionada ? (categorias.find(c => c.slug === catSeleccionada)?.emoji + " " + categorias.find(c => c.slug === catSeleccionada)?.label)
+    : catActual ? `${catActual.emoji} ${catActual.label}`
     : '🛒 Todos los productos';
+
+  const desde = (pagina - 1) * POR_PAGINA + 1;
+  const hasta = Math.min(pagina * POR_PAGINA, datos.total);
 
   return (
     <div className="container-max py-6">
@@ -55,21 +105,21 @@ function CatalogoContent() {
 
         {/* Sidebar */}
         <aside className="hidden md:flex flex-col gap-1.5 w-52 flex-shrink-0">
-          <button onClick={() => { setCat(''); setSoloOfertas(false); }}
-            className={`flex items-center gap-3 px-4 py-2.5 rounded-xl text-sm font-semibold transition-all text-left w-full ${!catSeleccionada && !soloOfertas ? 'bg-brand-purple-800 text-brand-yellow-400 shadow-md' : 'text-gray-600 hover:bg-gray-100'}`}>
+          <button onClick={() => elegirCategoria('')}
+            className={`flex items-center gap-3 px-4 py-2.5 rounded-xl text-sm font-semibold transition-all text-left w-full ${!cat ? 'bg-brand-purple-800 text-brand-yellow-400 shadow-md' : 'text-gray-600 hover:bg-gray-100'}`}>
             <LayoutGrid className="w-4 h-4 flex-shrink-0" />Todos los productos
           </button>
-          <button onClick={() => { setSoloOfertas(true); setCat(''); }}
+          <button onClick={() => elegirCategoria('ofertas')}
             className={`flex items-center gap-3 px-4 py-2.5 rounded-xl text-sm font-semibold transition-all text-left w-full ${soloOfertas ? 'bg-red-500 text-white shadow-md' : 'text-gray-600 hover:bg-red-50 hover:text-red-600'}`}>
             <Tag className="w-4 h-4 flex-shrink-0" />Ofertas del día
           </button>
           <div className="h-px bg-gray-200 my-1" />
           <p className="text-xs font-bold text-gray-400 uppercase tracking-widest px-4 mb-1">Categorías</p>
-          {categorias.map(cat => (
-            <button key={cat.id} onClick={() => { setCat(cat.slug); setSoloOfertas(false); }}
-              className={`flex items-center gap-3 px-4 py-2.5 rounded-xl text-sm font-medium transition-all text-left w-full ${catSeleccionada === cat.slug ? 'bg-brand-purple-100 text-brand-purple-800 font-semibold border border-brand-purple-200' : 'text-gray-600 hover:bg-gray-100'}`}>
-              <span className="text-base leading-none">{cat.emoji}</span>
-              <span className="truncate">{cat.label}</span>
+          {categorias.map(c => (
+            <button key={c.id} onClick={() => elegirCategoria(c.slug)}
+              className={`flex items-center gap-3 px-4 py-2.5 rounded-xl text-sm font-medium transition-all text-left w-full ${cat === c.slug ? 'bg-brand-purple-100 text-brand-purple-800 font-semibold border border-brand-purple-200' : 'text-gray-600 hover:bg-gray-100'}`}>
+              <span className="text-base leading-none">{c.emoji}</span>
+              <span className="truncate">{c.label}</span>
             </button>
           ))}
         </aside>
@@ -80,11 +130,13 @@ function CatalogoContent() {
             <div>
               <h1 className="text-xl font-black text-gray-900">{tituloActual}</h1>
               <p className="text-gray-400 text-sm">
-                {cargando ? 'Cargando...' : `${filtrados.length} producto${filtrados.length !== 1 ? 's' : ''}`}
+                {cargando ? 'Buscando...'
+                  : datos.total === 0 ? 'Sin resultados'
+                  : `${desde}–${hasta} de ${datos.total} producto${datos.total !== 1 ? 's' : ''}`}
               </p>
             </div>
             <div className="relative flex-shrink-0">
-              <select value={orden} onChange={e => setOrden(e.target.value)}
+              <select value={orden} onChange={e => actualizar({ orden: e.target.value, pag: 1 })}
                 className="appearance-none border border-gray-200 rounded-xl px-3 py-2 pr-7 text-xs sm:text-sm font-medium bg-white focus:outline-none focus:ring-2 focus:ring-brand-purple-400 cursor-pointer">
                 <option value="destacados">Destacados</option>
                 <option value="precio-asc">Precio ↑</option>
@@ -95,32 +147,28 @@ function CatalogoContent() {
             </div>
           </div>
 
-          <div className="relative mb-4">
-            <Search className="absolute left-3.5 top-1/2 -translate-y-1/2 w-4 h-4 text-gray-400" />
-            <input type="text" placeholder="Buscar en esta sección..."
-              value={busqueda} onChange={e => setBusqueda(e.target.value)}
-              className="w-full pl-10 pr-4 py-2.5 border border-gray-200 rounded-xl bg-white text-sm focus:outline-none focus:ring-2 focus:ring-brand-purple-400" />
-            {busqueda && (
-              <button onClick={() => setBusqueda('')} className="absolute right-3 top-1/2 -translate-y-1/2 text-gray-400 hover:text-gray-700">
-                <X className="w-4 h-4" />
-              </button>
-            )}
-          </div>
+          {/* Buscador — vive acá, que es donde se muestran los productos */}
+          <BuscadorProductos
+            valor={texto}
+            onChange={setTexto}
+            placeholder="Buscar productos..."
+            className="mb-4"
+          />
 
           {/* Categorías mobile */}
           <div className="md:hidden flex gap-2 overflow-x-auto pb-2 mb-4 scroll-x-hidden -mx-4 px-4">
-            <button onClick={() => { setCat(''); setSoloOfertas(false); }}
-              className={`flex-shrink-0 px-3 py-1.5 rounded-full text-xs font-semibold transition-all ${!catSeleccionada && !soloOfertas ? 'bg-brand-purple-800 text-brand-yellow-400' : 'bg-gray-100 text-gray-600'}`}>
+            <button onClick={() => elegirCategoria('')}
+              className={`flex-shrink-0 px-3 py-1.5 rounded-full text-xs font-semibold transition-all ${!cat ? 'bg-brand-purple-800 text-brand-yellow-400' : 'bg-gray-100 text-gray-600'}`}>
               Todos
             </button>
-            <button onClick={() => { setSoloOfertas(true); setCat(''); }}
+            <button onClick={() => elegirCategoria('ofertas')}
               className={`flex-shrink-0 px-3 py-1.5 rounded-full text-xs font-semibold transition-all ${soloOfertas ? 'bg-red-500 text-white' : 'bg-gray-100 text-gray-600'}`}>
               🔥 Ofertas
             </button>
-            {categorias.map(cat => (
-              <button key={cat.id} onClick={() => { setCat(cat.slug); setSoloOfertas(false); }}
-                className={`flex-shrink-0 px-3 py-1.5 rounded-full text-xs font-semibold whitespace-nowrap ${catSeleccionada === cat.slug ? 'bg-brand-purple-800 text-brand-yellow-400' : 'bg-gray-100 text-gray-600'}`}>
-                {cat.emoji} {cat.label}
+            {categorias.map(c => (
+              <button key={c.id} onClick={() => elegirCategoria(c.slug)}
+                className={`flex-shrink-0 px-3 py-1.5 rounded-full text-xs font-semibold whitespace-nowrap ${cat === c.slug ? 'bg-brand-purple-800 text-brand-yellow-400' : 'bg-gray-100 text-gray-600'}`}>
+                {c.emoji} {c.label}
               </button>
             ))}
           </div>
@@ -138,16 +186,28 @@ function CatalogoContent() {
                 </div>
               ))}
             </div>
-          ) : filtrados.length > 0 ? (
-            <div className="grid grid-cols-2 sm:grid-cols-2 lg:grid-cols-3 xl:grid-cols-4 gap-4 fade-in">
-              {filtrados.map(p => <ProductCard key={p.id} producto={p} />)}
-            </div>
+          ) : datos.items.length > 0 ? (
+            <>
+              <div className="grid grid-cols-2 sm:grid-cols-2 lg:grid-cols-3 xl:grid-cols-4 gap-4 fade-in">
+                {datos.items.map(p => <ProductCard key={p.id} producto={p} />)}
+              </div>
+
+              <Paginacion
+                pagina={pagina}
+                totalPaginas={datos.totalPaginas}
+                onCambiar={irAPagina}
+                className="mt-8"
+              />
+            </>
           ) : (
             <div className="text-center py-20">
               <span className="text-6xl">😕</span>
-              <p className="text-gray-500 font-medium mt-4">No encontramos productos</p>
-              <button onClick={() => { setBusqueda(''); setCat(''); setSoloOfertas(false); }}
-                className="mt-4 btn-primary text-sm">Ver todos los productos</button>
+              <p className="text-gray-500 font-medium mt-4">
+                {q ? `No encontramos productos con “${q}”` : 'No encontramos productos'}
+              </p>
+              <button onClick={limpiarTodo} className="mt-4 btn-primary text-sm">
+                Ver todos los productos
+              </button>
             </div>
           )}
         </div>

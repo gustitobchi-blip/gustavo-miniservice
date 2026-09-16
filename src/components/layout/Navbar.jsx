@@ -11,7 +11,6 @@ import { createClient } from '@/lib/supabase/client';
 export default function Navbar() {
   const [menuOpen, setMenuOpen]   = useState(false);
   const [userMenu, setUserMenu]   = useState(false);
-  const [searchQuery, setSearch]  = useState('');
   const [usuario, setUsuario]     = useState(null); // { nombre, rol }
   const { totalItems, toggleCart, cartToast } = useCart();
   const router = useRouter();
@@ -73,18 +72,6 @@ export default function Navbar() {
                 <span className="block text-brand-purple-200 text-[10px] font-medium -mt-1">Miniservice</span>
               </div>
             </Link>
-
-            {/* Search bar */}
-            <div className="hidden md:flex flex-1 max-w-xl">
-              <div className="relative w-full">
-                <Search className="absolute left-3 top-1/2 -translate-y-1/2 w-4 h-4 text-gray-400" />
-                <input
-                  type="text" placeholder="Buscar productos..."
-                  value={searchQuery} onChange={e => setSearch(e.target.value)}
-                  className="w-full pl-10 pr-4 py-2 rounded-xl bg-white text-gray-900 text-sm focus:outline-none focus:ring-2 focus:ring-brand-yellow-400 placeholder-gray-400"
-                />
-              </div>
-            </div>
 
             {/* Right actions */}
             <div className="flex items-center gap-2">
@@ -190,14 +177,11 @@ export default function Navbar() {
         {/* Mobile menu — solo muestra Ofertas y cuenta (el resto lo cubre el BottomNav) */}
         {menuOpen && (
           <div className="md:hidden bg-brand-purple-900 border-t border-brand-purple-700 px-4 py-4">
-            {/* Buscador */}
-            <div className="relative mb-4">
-              <Search className="absolute left-3 top-1/2 -translate-y-1/2 w-4 h-4 text-gray-400" />
-              <input type="text" placeholder="Buscar productos..."
-                className="w-full pl-10 pr-4 py-3 rounded-xl bg-white text-gray-900 text-sm focus:outline-none"
-                onKeyDown={e => { if (e.key === 'Enter') { setMenuOpen(false); window.location.href = `/catalogo?q=${e.target.value}`; } }}
-              />
-            </div>
+            {/* El buscador vive en el catálogo, que es donde se muestran los productos */}
+            <Link href="/catalogo" onClick={() => setMenuOpen(false)}
+              className="flex items-center gap-3 bg-brand-purple-800 text-brand-yellow-300 px-4 py-3 rounded-xl text-sm font-semibold mb-3">
+              <Search className="w-4 h-4" />Buscar en el catálogo
+            </Link>
 
             {/* Ofertas — link rápido */}
             <Link href="/catalogo?cat=ofertas" onClick={() => setMenuOpen(false)}

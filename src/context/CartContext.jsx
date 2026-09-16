@@ -1,8 +1,12 @@
 'use client';
 
-import { createContext, useContext, useReducer, useState, useRef } from 'react';
+import { createContext, useContext, useReducer, useState, useRef, useEffect, useCallback } from 'react';
+import { createClient } from '@/lib/supabase/client';
 
 const CartContext = createContext(null);
+
+// El carrito vivía sólo en memoria: bastaba un F5 para perder toda la compra.
+const CLAVE_LOCAL = 'gustavo-carrito';
 
 const cartReducer = (state, action) => {
   switch (action.type) {
@@ -20,6 +24,22 @@ const cartReducer = (state, action) => {
       }
       return { ...state, items: [...state.items, { ...action.payload, cantidad: 1 }] };
     }
+
+    // Carga de varios de una (volver a pedir). Fija la cantidad en vez de
+    // sumarla: apretar "volver a pedir" dos veces tiene que dejar el mismo
+    // carrito, no el doble.
+    case 'ADD_ITEMS': {
+      const items = [...state.items];
+      action.payload.forEach(({ producto, cantidad }) => {
+        const i = items.findIndex(x => x.id === producto.id);
+        if (i >= 0) items[i] = { ...items[i], ...producto, cantidad };
+        else items.push({ ...producto, cantidad });
+      });
+      return { ...state, items };
+    }
+
+    case 'SET_ITEMS':
+      return { ...state, items: action.payload };
 
     case 'REMOVE_ITEM':
       return { ...state, items: state.items.filter(i => i.id !== action.payload) };
@@ -55,10 +75,93 @@ const cartReducer = (state, action) => {
 
 const initialState = { items: [], isOpen: false };
 
+function leerLocal() {
+  try {
+    const crudo = localStorage.getItem(CLAVE_LOCAL);
+    const items = crudo ? JSON.parse(crudo) : [];
+    return Array.isArray(items) ? items : [];
+  } catch {
+    return [];
+  }
+}
+
 export function CartProvider({ children }) {
   const [state, dispatch] = useReducer(cartReducer, initialState);
   const [cartToast, setCartToast] = useState({ visible: false, nombre: '', imagen: '' });
   const toastTimer = useRef(null);
+
+  const [usuarioId, setUsuarioId] = useState(null);
+  // Hasta que no se terminó de leer lo guardado no se escribe nada, o el
+  // carrito vacío del arranque pisaría lo que había.
+  const [hidratado, setHidratado] = useState(false);
+  const [recuperado, setRecuperado] = useState(false);
+
+  // ── Recuperar lo que había ────────────────────────────────────
+  useEffect(() => {
+    const supabase = createClient();
+    const locales = leerLocal();
+    if (locales.length) dispatch({ type: 'SET_ITEMS', payload: locales });
+
+    const sincronizar = async () => {
+      try {
+        const { data: { user } } = await supabase.auth.getUser();
+        setUsuarioId(user?.id || null);
+
+        if (user) {
+          const { data } = await supabase
+            .from('carritos')
+            .select('items')
+            .eq('cliente_id', user.id)
+            .maybeSingle();
+
+          const guardados = Array.isArray(data?.items) ? data.items : [];
+          // Si en este dispositivo no hay nada, se recupera el carrito que
+          // quedó abierto en otro lado.
+          if (!locales.length && guardados.length) {
+            dispatch({ type: 'SET_ITEMS', payload: guardados });
+            setRecuperado(true);
+          }
+        }
+      } catch {
+        // Sin la tabla `carritos` el carrito sigue andando, sólo que local.
+      }
+      setHidratado(true);
+    };
+
+    sincronizar();
+
+    const { data: { subscription } } = supabase.auth.onAuthStateChange((evento) => {
+      if (evento === 'SIGNED_OUT') setUsuarioId(null);
+      if (evento === 'SIGNED_IN')  sincronizar();
+    });
+    return () => subscription.unsubscribe();
+  }, []);
+
+  // ── Guardar en cada cambio ────────────────────────────────────
+  useEffect(() => {
+    if (!hidratado) return;
+
+    try {
+      localStorage.setItem(CLAVE_LOCAL, JSON.stringify(state.items));
+    } catch {
+      // Ventana privada o storage lleno: el carrito sigue en memoria.
+    }
+
+    if (!usuarioId) return;
+    // Debounce: sumar 5 unidades no son 5 escrituras a la base.
+    const timer = setTimeout(async () => {
+      try {
+        await createClient().from('carritos').upsert({
+          cliente_id:     usuarioId,
+          items:          state.items,
+          actualizado_en: new Date().toISOString(),
+        });
+      } catch {
+        // Idem: que no se pueda guardar no puede romper la compra.
+      }
+    }, 800);
+    return () => clearTimeout(timer);
+  }, [state.items, usuarioId, hidratado]);
 
   const totalItems  = state.items.reduce((sum, i) => sum + i.cantidad, 0);
   const totalPrecio = state.items.reduce((sum, i) => sum + i.precio * i.cantidad, 0);
@@ -70,6 +173,12 @@ export function CartProvider({ children }) {
     setCartToast({ visible: true, nombre: producto.nombre, imagen: producto.imagen || '' });
     toastTimer.current = setTimeout(() => setCartToast({ visible: false, nombre: '', imagen: '' }), 2500);
   };
+
+  /** @param {Array<{producto: object, cantidad: number}>} lista */
+  const addItems = useCallback((lista) => {
+    if (!lista?.length) return;
+    dispatch({ type: 'ADD_ITEMS', payload: lista });
+  }, []);
 
   const removeItem      = (id)             => dispatch({ type: 'REMOVE_ITEM',      payload: id });
   const updateCantidad  = (id, cantidad)   => dispatch({ type: 'UPDATE_CANTIDAD',  payload: { id, cantidad } });
@@ -85,7 +194,10 @@ export function CartProvider({ children }) {
       totalItems,
       totalPrecio,
       cartToast,
+      recuperado,
+      ocultarRecuperado: () => setRecuperado(false),
       addItem,
+      addItems,
       removeItem,
       updateCantidad,
       clearCart,

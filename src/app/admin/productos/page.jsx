@@ -5,6 +5,8 @@ import { ArrowLeft, Plus, Pencil, Save, X, Search, Upload, ImageIcon, Package, E
 import { createClient } from '@/lib/supabase/client';
 import { categorias } from '@/data/mockData';
 import { formatPrecio } from '@/lib/productos';
+import { POR_PAGINA_ADMIN, terminosBusqueda } from '@/lib/productos-shared';
+import Paginacion from '@/components/catalog/Paginacion';
 
 // Sin cod_barra: esa columna no existe en la tabla y hacía fallar el insert.
 const EMPTY = {
@@ -15,7 +17,13 @@ const EMPTY = {
 
 export default function AdminProductos() {
   const [productos, setProductos] = useState([]);
+  const [total, setTotal]         = useState(0);
+  const [totalPaginas, setTotPag] = useState(1);
+  const [pagina, setPagina]       = useState(1);
   const [busqueda, setBusqueda]   = useState('');
+  // Lo que se tipea vs. lo que ya se consultó: sin el debounce cada letra
+  // dispararía una query contra Supabase.
+  const [busquedaAplicada, setBusquedaAplicada] = useState('');
   const [catFiltro, setCat]       = useState('');
   const [estado, setEstado]       = useState('publicados');
   const [loading, setLoading]     = useState(true);
@@ -32,32 +40,55 @@ export default function AdminProductos() {
   const fileRef = useRef();
   const supabase = createClient();
 
-  // PostgREST devuelve como máximo 1000 filas por request: hay que paginar o
-  // el panel muestra solo una parte del catálogo.
+  // Una página por vez. Antes se traían hasta 20.000 filas al browser y se
+  // filtraban en memoria; ahora el filtro, el orden y el corte los hace
+  // Supabase y llegan sólo las 50 que se ven.
+  const pedido = useRef(0);
+
   const cargar = async () => {
-    const PAGINA = 1000;
-    const filas = [];
+    const mio = ++pedido.current;
+    setLoading(true);
+    const desde = (pagina - 1) * POR_PAGINA_ADMIN;
 
-    for (let pagina = 0; pagina < 20; pagina++) {
-      const desde = pagina * PAGINA;
-      let q = supabase.from('productos').select('*');
-      if (estado === 'publicados')     q = q.eq('publicado', true);
-      if (estado === 'no-publicados')  q = q.eq('publicado', false);
+    let q = supabase.from('productos').select('*', { count: 'exact' });
+    if (estado === 'publicados')     q = q.eq('publicado', true);
+    if (estado === 'no-publicados')  q = q.eq('publicado', false);
+    if (catFiltro)                   q = q.eq('categoria', catFiltro);
 
-      const { data, error } = await q
-        .order('categoria').order('descripcion').order('id')
-        .range(desde, desde + PAGINA - 1);
-
-      if (error) break;
-      filas.push(...(data || []));
-      if (!data || data.length < PAGINA) break;
+    const palabras = terminosBusqueda(busquedaAplicada);
+    if (palabras.length === 1 && /^\d+$/.test(palabras[0])) {
+      // Un número suelto suele ser el código, no parte de la descripción.
+      q = q.or(`descripcion.ilike.%${palabras[0]}%,codigo.ilike.%${palabras[0]}%`);
+    } else {
+      palabras.forEach(palabra => { q = q.ilike('descripcion', `%${palabra}%`); });
     }
 
-    setProductos(filas);
+    const { data, count, error } = await q
+      .order('categoria').order('descripcion').order('id')
+      .range(desde, desde + POR_PAGINA_ADMIN - 1);
+
+    // Si mientras tanto salió otra consulta, esta respuesta ya quedó vieja.
+    if (mio !== pedido.current) return;
+
+    if (!error) {
+      setProductos(data || []);
+      setTotal(count || 0);
+      setTotPag(Math.max(1, Math.ceil((count || 0) / POR_PAGINA_ADMIN)));
+    }
     setLoading(false);
   };
 
-  useEffect(() => { setLoading(true); cargar(); }, [estado]); // eslint-disable-line react-hooks/exhaustive-deps
+  // 350ms sin teclas antes de consultar.
+  useEffect(() => {
+    const timer = setTimeout(() => setBusquedaAplicada(busqueda), 350);
+    return () => clearTimeout(timer);
+  }, [busqueda]);
+
+  // Cambiar un filtro vuelve a la primera página: quedarse en la 7 de un
+  // resultado que ahora tiene 2 páginas muestra una tabla vacía.
+  useEffect(() => { setPagina(1); }, [busquedaAplicada, catFiltro, estado]);
+
+  useEffect(() => { cargar(); }, [estado, catFiltro, busquedaAplicada, pagina]); // eslint-disable-line react-hooks/exhaustive-deps
 
   const abrirAlta = () => {
     setAltaBusqueda(''); setAltaResultados([]); setAltaBuscada(false);
@@ -172,12 +203,6 @@ export default function AdminProductos() {
     await cargar();
   };
 
-  const filtrados = productos.filter(p => {
-    const q = busqueda.toLowerCase();
-    return (!q || (p.descripcion || '').toLowerCase().includes(q)) &&
-           (!catFiltro || p.categoria === catFiltro);
-  });
-
   return (
     <div className="min-h-screen bg-gray-50">
       <header className="bg-brand-purple-900 text-white px-6 py-4 flex items-center gap-4">
@@ -195,7 +220,7 @@ export default function AdminProductos() {
           <div className="relative flex-1 min-w-48">
             <Search className="absolute left-3 top-1/2 -translate-y-1/2 w-4 h-4 text-gray-400" />
             <input value={busqueda} onChange={e => setBusqueda(e.target.value)}
-              placeholder="Buscar producto..." className="input pl-10 bg-white" />
+              placeholder="Buscar por nombre o código..." className="input pl-10 bg-white" />
           </div>
           <select value={catFiltro} onChange={e => setCat(e.target.value)} className="input bg-white w-auto">
             <option value="">Todas las categorías</option>
@@ -206,7 +231,11 @@ export default function AdminProductos() {
             <option value="no-publicados">Fuera de la página</option>
             <option value="todos">Todos</option>
           </select>
-          <span className="self-center text-sm text-gray-500">{filtrados.length} productos</span>
+          <span className="self-center text-sm text-gray-500">
+            {loading ? 'Buscando...'
+              : total === 0 ? 'Sin resultados'
+              : `${(pagina - 1) * POR_PAGINA_ADMIN + 1}–${Math.min(pagina * POR_PAGINA_ADMIN, total)} de ${total}`}
+          </span>
         </div>
 
         {loading ? (
@@ -225,7 +254,7 @@ export default function AdminProductos() {
                 </tr>
               </thead>
               <tbody className="divide-y divide-gray-50">
-                {filtrados.map(p => (
+                {productos.map(p => (
                   <tr key={p.id} className="hover:bg-gray-50 transition-colors">
                     <td className="px-4 py-3">
                       <div className="flex items-center gap-3">
@@ -276,9 +305,22 @@ export default function AdminProductos() {
                 ))}
               </tbody>
             </table>
-            {filtrados.length === 0 && <div className="text-center py-12 text-gray-400">No hay productos</div>}
+            {productos.length === 0 && (
+              <div className="text-center py-12 text-gray-400">
+                {busquedaAplicada
+                  ? `No hay productos que coincidan con “${busquedaAplicada}”`
+                  : 'No hay productos'}
+              </div>
+            )}
           </div>
         )}
+
+        <Paginacion
+          pagina={pagina}
+          totalPaginas={totalPaginas}
+          onCambiar={p => { setPagina(p); window.scrollTo({ top: 0, behavior: 'smooth' }); }}
+          className="mt-6"
+        />
       </div>
 
       {/* Alta: primero se busca el producto en la base, después se publica */}
