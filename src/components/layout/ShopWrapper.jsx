@@ -4,6 +4,7 @@ import { usePathname } from 'next/navigation';
 import Navbar from './Navbar';
 import Footer from './Footer';
 import BottomNav from './BottomNav';
+import BotonWhatsApp from './BotonWhatsApp';
 
 // Rutas que tienen su propio layout completo
 const STANDALONE_ROUTES = ['/cadete'];
@@ -25,6 +26,7 @@ export default function ShopWrapper({ children }) {
       </main>
       <Footer />
       <BottomNav />
+      <BotonWhatsApp />
     </>
   );
 }

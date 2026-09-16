@@ -9,7 +9,6 @@ import {
 } from '@/lib/productos';
 import { POR_PAGINA } from '@/lib/productos-shared';
 import ProductCard from '@/components/catalog/ProductCard';
-import BuscadorProductos from '@/components/catalog/BuscadorProductos';
 import Paginacion from '@/components/catalog/Paginacion';
 
 function CatalogoContent() {
@@ -18,6 +17,8 @@ function CatalogoContent() {
 
   // La URL es la fuente de verdad: así el botón "atrás" vuelve a la página y
   // al filtro donde estabas, y un link con filtros aplicados se puede compartir.
+  // El texto de búsqueda llega acá desde el buscador del navbar, que es el
+  // único del sitio.
   const q      = searchParams.get('q') || '';
   const cat    = searchParams.get('cat') || '';
   const orden  = searchParams.get('orden') || 'destacados';
@@ -32,12 +33,10 @@ function CatalogoContent() {
   const [similares, setSimilares] = useState([]);
   const [populares, setPopulares] = useState([]);
 
-  // Los inputs se manejan locales para que no lagueen; la URL se actualiza al
-  // frenar de tipear.
-  const [texto, setTexto]       = useState(q);
+  // Los inputs de precio se manejan locales para que no lagueen; la URL se
+  // actualiza al frenar de tipear.
   const [minLocal, setMinLocal] = useState(precioMin);
   const [maxLocal, setMaxLocal] = useState(precioMax);
-  const ultimoPush       = useRef(q);
   const ultimoPrecio     = useRef(`${precioMin}|${precioMax}`);
   const ultimaRegistrada = useRef('');
 
@@ -54,26 +53,7 @@ function CatalogoContent() {
     router.replace(qs ? `/catalogo?${qs}` : '/catalogo', { scroll: false });
   }, [searchParams, router]);
 
-  // Debounce del buscador: 300ms sin teclas y recién ahí se consulta.
-  useEffect(() => {
-    if (texto === q) return;
-    const timer = setTimeout(() => {
-      ultimoPush.current = texto;
-      actualizar({ q: texto, pag: 1 });
-    }, 300);
-    return () => clearTimeout(timer);
-  }, [texto, q, actualizar]);
-
-  // Si la URL cambió por afuera (botón atrás, buscador del navbar), se acomodan
-  // los inputs.
-  useEffect(() => {
-    if (q !== ultimoPush.current) {
-      setTexto(q);
-      ultimoPush.current = q;
-    }
-  }, [q]);
-
-  // Mismo debounce para el rango de precio: escribir "1500" no son 4 consultas.
+  // Debounce del rango de precio: escribir "1500" no son 4 consultas.
   useEffect(() => {
     const actual = `${minLocal}|${maxLocal}`;
     if (actual === `${precioMin}|${precioMax}`) return;
@@ -84,6 +64,7 @@ function CatalogoContent() {
     return () => clearTimeout(timer);
   }, [minLocal, maxLocal, precioMin, precioMax, actualizar]);
 
+  // Si la URL cambió por afuera (botón atrás), se acomodan los inputs.
   useEffect(() => {
     const actual = `${precioMin}|${precioMax}`;
     if (actual !== ultimoPrecio.current) {
@@ -138,22 +119,22 @@ function CatalogoContent() {
 
   const elegirCategoria = slug => actualizar({ cat: slug, pag: 1 });
 
-  const buscar = termino => {
-    setTexto(termino);
-    ultimoPush.current = termino;
-    actualizar({ q: termino, pag: 1 });
+  const limpiarTodo = () => {
+    setMinLocal(''); setMaxLocal('');
+    ultimoPrecio.current = '|';
+    router.replace('/catalogo', { scroll: false });
   };
 
-  const limpiarTodo = () => {
-    setTexto(''); setMinLocal(''); setMaxLocal('');
-    ultimoPush.current = ''; ultimoPrecio.current = '|';
-    router.replace('/catalogo', { scroll: false });
+  const limpiarFiltros = () => {
+    setMinLocal(''); setMaxLocal('');
+    actualizar({ min: '', max: '', stock: '', pag: 1 });
   };
 
   const hayFiltros = !!(precioMin || precioMax || soloConStock);
 
   const catActual = categorias.find(c => c.slug === cat);
-  const tituloActual = soloOfertas ? '🔥 Ofertas del día'
+  const tituloActual = q ? `Resultados para “${q}”`
+    : soloOfertas ? '🔥 Ofertas del día'
     : catActual ? `${catActual.emoji} ${catActual.label}`
     : '🛒 Todos los productos';
 
@@ -187,63 +168,66 @@ function CatalogoContent() {
 
         {/* Contenido */}
         <div className="flex-1 min-w-0">
-          <div className="flex items-start justify-between mb-4 gap-3">
-            <div>
-              <h1 className="text-xl font-black text-gray-900">{tituloActual}</h1>
+          {/* Título + filtros y orden, todo en la misma fila */}
+          <div className="flex items-start justify-between gap-3 flex-wrap mb-4">
+            <div className="min-w-0">
+              <div className="flex items-center gap-2">
+                <h1 className="text-xl font-black text-gray-900 truncate">{tituloActual}</h1>
+                {q && (
+                  <button onClick={limpiarTodo} title="Borrar la búsqueda"
+                    className="flex-shrink-0 text-gray-400 hover:text-red-600 transition-colors">
+                    <X className="w-4 h-4" />
+                  </button>
+                )}
+              </div>
               <p className="text-gray-400 text-sm">
                 {cargando ? 'Buscando...'
                   : datos.total === 0 ? 'Sin resultados'
                   : `${desde}–${hasta} de ${datos.total} producto${datos.total !== 1 ? 's' : ''}`}
               </p>
             </div>
-            <div className="relative flex-shrink-0">
-              <select value={orden} onChange={e => actualizar({ orden: e.target.value, pag: 1 })}
-                className="appearance-none border border-gray-200 rounded-xl px-3 py-2 pr-7 text-xs sm:text-sm font-medium bg-white focus:outline-none focus:ring-2 focus:ring-brand-purple-400 cursor-pointer">
-                <option value="destacados">Destacados</option>
-                <option value="precio-asc">Precio ↑</option>
-                <option value="precio-desc">Precio ↓</option>
-                <option value="nombre">A–Z</option>
-              </select>
-              <ChevronDown className="absolute right-2 top-1/2 -translate-y-1/2 w-3.5 h-3.5 text-gray-400 pointer-events-none" />
-            </div>
-          </div>
 
-          <BuscadorProductos
-            valor={texto}
-            onChange={setTexto}
-            placeholder="Buscar productos..."
-            className="mb-3"
-          />
+            <div className="flex items-center gap-2 flex-wrap">
+              {/* Rango de precio */}
+              <div className="flex items-center gap-1 bg-white border border-gray-200 rounded-xl px-2.5 py-1.5">
+                <span className="text-xs font-semibold text-gray-400">$</span>
+                <input type="number" inputMode="numeric" min="0" placeholder="mín"
+                  value={minLocal} onChange={e => setMinLocal(e.target.value)}
+                  className="w-14 text-xs bg-transparent focus:outline-none" />
+                <span className="text-gray-300 text-xs">–</span>
+                <input type="number" inputMode="numeric" min="0" placeholder="máx"
+                  value={maxLocal} onChange={e => setMaxLocal(e.target.value)}
+                  className="w-14 text-xs bg-transparent focus:outline-none" />
+              </div>
 
-          {/* Filtros de precio y stock */}
-          <div className="flex flex-wrap items-center gap-2 mb-4">
-            <div className="flex items-center gap-1.5 bg-white border border-gray-200 rounded-xl px-3 py-1.5">
-              <span className="text-xs font-semibold text-gray-400">$</span>
-              <input type="number" inputMode="numeric" min="0" placeholder="mín"
-                value={minLocal} onChange={e => setMinLocal(e.target.value)}
-                className="w-16 text-sm bg-transparent focus:outline-none" />
-              <span className="text-gray-300">–</span>
-              <input type="number" inputMode="numeric" min="0" placeholder="máx"
-                value={maxLocal} onChange={e => setMaxLocal(e.target.value)}
-                className="w-16 text-sm bg-transparent focus:outline-none" />
-            </div>
-
-            <button onClick={() => actualizar({ stock: soloConStock ? '' : '1', pag: 1 })}
-              className={`flex items-center gap-1.5 px-3 py-2 rounded-xl text-xs font-bold transition-all border ${
-                soloConStock
-                  ? 'bg-green-600 border-green-600 text-white'
-                  : 'bg-white border-gray-200 text-gray-600 hover:border-green-300 hover:text-green-700'
-              }`}>
-              <PackageCheck className="w-3.5 h-3.5" />
-              Solo con stock
-            </button>
-
-            {hayFiltros && (
-              <button onClick={() => { setMinLocal(''); setMaxLocal(''); actualizar({ min: '', max: '', stock: '', pag: 1 }); }}
-                className="flex items-center gap-1 px-3 py-2 rounded-xl text-xs font-semibold text-gray-500 hover:text-red-600 transition-colors">
-                <X className="w-3.5 h-3.5" />Limpiar filtros
+              <button onClick={() => actualizar({ stock: soloConStock ? '' : '1', pag: 1 })}
+                className={`flex items-center gap-1.5 px-3 py-2 rounded-xl text-xs font-bold transition-all border ${
+                  soloConStock
+                    ? 'bg-green-600 border-green-600 text-white'
+                    : 'bg-white border-gray-200 text-gray-600 hover:border-green-300 hover:text-green-700'
+                }`}>
+                <PackageCheck className="w-3.5 h-3.5" />
+                Solo con stock
               </button>
-            )}
+
+              {hayFiltros && (
+                <button onClick={limpiarFiltros} title="Limpiar filtros"
+                  className="p-2 rounded-xl text-gray-400 hover:text-red-600 hover:bg-red-50 transition-colors">
+                  <X className="w-4 h-4" />
+                </button>
+              )}
+
+              <div className="relative">
+                <select value={orden} onChange={e => actualizar({ orden: e.target.value, pag: 1 })}
+                  className="appearance-none border border-gray-200 rounded-xl px-3 py-2 pr-7 text-xs font-medium bg-white focus:outline-none focus:ring-2 focus:ring-brand-purple-400 cursor-pointer">
+                  <option value="destacados">Destacados</option>
+                  <option value="precio-asc">Precio ↑</option>
+                  <option value="precio-desc">Precio ↓</option>
+                  <option value="nombre">A–Z</option>
+                </select>
+                <ChevronDown className="absolute right-2 top-1/2 -translate-y-1/2 w-3.5 h-3.5 text-gray-400 pointer-events-none" />
+              </div>
+            </div>
           </div>
 
           {/* Lo más buscado — sólo mientras no hay una búsqueda activa */}
@@ -253,7 +237,7 @@ function CatalogoContent() {
                 <TrendingUp className="w-3.5 h-3.5" />Lo más buscado
               </span>
               {populares.map(termino => (
-                <button key={termino} onClick={() => buscar(termino)}
+                <button key={termino} onClick={() => actualizar({ q: termino, pag: 1 })}
                   className="px-3 py-1 rounded-full bg-brand-purple-50 text-brand-purple-700 text-xs font-semibold hover:bg-brand-purple-100 transition-colors">
                   {termino}
                 </button>
