@@ -3,9 +3,10 @@
 import { useState, useEffect } from 'react';
 import Link from 'next/link';
 import { useRouter } from 'next/navigation';
-import { ShoppingCart, Search, Menu, X, Store, User, LogOut, ChevronDown, Shield, CheckCircle2 } from 'lucide-react';
+import { ShoppingCart, Menu, X, Store, User, LogOut, ChevronDown, Shield, CheckCircle2 } from 'lucide-react';
 import { useCart } from '@/context/CartContext';
 import CartDrawer from '@/components/cart/CartDrawer';
+import BuscadorProductos from '@/components/catalog/BuscadorProductos';
 import { createClient } from '@/lib/supabase/client';
 
 export default function Navbar() {
@@ -72,6 +73,11 @@ export default function Navbar() {
                 <span className="block text-brand-purple-200 text-[10px] font-medium -mt-1">Miniservice</span>
               </div>
             </Link>
+
+            {/* Search bar */}
+            <div className="hidden md:flex flex-1 max-w-xl">
+              <BuscadorProductos variant="desktop" />
+            </div>
 
             {/* Right actions */}
             <div className="flex items-center gap-2">
@@ -177,11 +183,10 @@ export default function Navbar() {
         {/* Mobile menu — solo muestra Ofertas y cuenta (el resto lo cubre el BottomNav) */}
         {menuOpen && (
           <div className="md:hidden bg-brand-purple-900 border-t border-brand-purple-700 px-4 py-4">
-            {/* El buscador vive en el catálogo, que es donde se muestran los productos */}
-            <Link href="/catalogo" onClick={() => setMenuOpen(false)}
-              className="flex items-center gap-3 bg-brand-purple-800 text-brand-yellow-300 px-4 py-3 rounded-xl text-sm font-semibold mb-3">
-              <Search className="w-4 h-4" />Buscar en el catálogo
-            </Link>
+            {/* Buscador */}
+            <div className="mb-4">
+              <BuscadorProductos variant="mobile" onNavigate={() => setMenuOpen(false)} />
+            </div>
 
             {/* Ofertas — link rápido */}
             <Link href="/catalogo?cat=ofertas" onClick={() => setMenuOpen(false)}

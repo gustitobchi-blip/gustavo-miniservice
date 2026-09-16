@@ -28,13 +28,20 @@ function aplicarBusqueda(query, q) {
 
   // Un número suelto suele ser el código del producto, no parte del nombre.
   if (palabras.length === 1 && /^\d+$/.test(palabras[0])) {
-    return query.or(`descripcion.ilike.%${palabras[0]}%,codigo.ilike.%${palabras[0]}%`);
+    return query.or(
+      `descripcion.ilike.%${palabras[0]}%,descripcion_web.ilike.%${palabras[0]}%,codigo.ilike.%${palabras[0]}%`
+    );
   }
 
   // Varias palabras: tienen que aparecer todas, en cualquier orden. Así
   // "coca 2 litros" encuentra "COCA COLA 2.25 LT", que con un ilike de la
-  // frase entera no aparecía nunca.
-  return palabras.reduce((acc, palabra) => acc.ilike('descripcion', `%${palabra}%`), query);
+  // frase entera no aparecía nunca. Cada `or` encadenado se combina con AND,
+  // y adentro de cada uno se mira la descripción del miniservice y la web
+  // (que es el nombre que termina viendo el cliente).
+  return palabras.reduce(
+    (acc, palabra) => acc.or(`descripcion.ilike.%${palabra}%,descripcion_web.ilike.%${palabra}%`),
+    query
+  );
 }
 
 function aplicarOrden(query, orden) {

@@ -29,6 +29,18 @@ export async function POST(request) {
       currency_id: 'ARS',
     }));
 
+    // El costo de envío también sale de la base (lo calculó el checkout al
+    // verificar la dirección), no de lo que mande el navegador.
+    const costoEnvio = await costoEnvioDelPedido(pedidoId);
+    if (costoEnvio > 0) {
+      mpItems.push({
+        title:       'Envío a domicilio',
+        quantity:    1,
+        unit_price:  costoEnvio,
+        currency_id: 'ARS',
+      });
+    }
+
     const invalido = mpItems.find(i => !(i.quantity > 0) || !(i.unit_price > 0));
     if (!mpItems.length || invalido) {
       return Response.json({ error: 'El pedido no tiene items válidos para cobrar' }, { status: 400 });
@@ -48,6 +60,12 @@ export async function POST(request) {
       external_reference:  String(pedidoId),
       statement_descriptor: 'GUSTAVO 1',
       metadata:            { pedido_id: String(pedidoId) },
+      // El negocio no acepta tarjeta de crédito (y por lo tanto tampoco cuotas):
+      // se excluye ese medio y se fuerza pago en un solo pago.
+      payment_methods: {
+        excluded_payment_types: [{ id: 'credit_card' }],
+        installments: 1,
+      },
     };
 
     // MP no acepta localhost como notification_url: sólo la mandamos en producción.
@@ -89,6 +107,23 @@ async function itemsDelPedido(pedidoId) {
     }));
   } catch {
     return null;
+  }
+}
+
+/** Costo de envío guardado en el pedido. 0 si no tiene o no se pudo leer. */
+async function costoEnvioDelPedido(pedidoId) {
+  try {
+    const supabase = createAdminClient();
+    const { data, error } = await supabase
+      .from('pedidos')
+      .select('costo_envio')
+      .eq('id', pedidoId)
+      .single();
+
+    if (error || !data) return 0;
+    return Number(data.costo_envio) || 0;
+  } catch {
+    return 0;
   }
 }
 
