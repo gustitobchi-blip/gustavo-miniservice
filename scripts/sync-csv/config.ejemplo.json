@@ -1,0 +1,8 @@
+{
+  "carpeta": "C:/Mis Documentos/Sistema negocio",
+  "archivo": "PRODUCTO.csv",
+  "supabaseUrl": "https://olecculgbgmsegubnpsl.supabase.co",
+  "anonKey": "PEGAR_LA_CLAVE_PUBLICA_ANON",
+  "token": "PEGAR_EL_TOKEN_DE_SINCRONIZACION",
+  "maxHorasAntiguedad": 12
+}

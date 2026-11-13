@@ -41,3 +41,8 @@ next-env.d.ts
 *.DBF
 *.dbt
 *.DBT
+
+# Sync CSV del super: datos locales de cada PC (token, log, estado)
+scripts/sync-csv/config.json
+scripts/sync-csv/sync_csv.log
+scripts/sync-csv/sync_csv.estado.json
