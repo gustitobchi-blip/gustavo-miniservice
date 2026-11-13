@@ -49,6 +49,3 @@ scripts/sync-csv/sync_csv.estado.json
 
 # Claude Code (worktrees y estado local)
 .claude/
-
-# Export del catalogo: vive en disco, no en git
-productos-*.json
