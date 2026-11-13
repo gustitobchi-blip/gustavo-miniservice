@@ -2,9 +2,10 @@
 import { useState, useEffect } from 'react';
 import Link from 'next/link';
 import { useRouter } from 'next/navigation';
-import { ShoppingBag, ArrowLeft, Package, Clock, CheckCircle2, Truck, XCircle, AlertTriangle, CreditCard } from 'lucide-react';
+import { ShoppingBag, ArrowLeft, Package, Clock, CheckCircle2, Truck, XCircle, AlertTriangle, CreditCard, RotateCcw, Info } from 'lucide-react';
 import { createClient } from '@/lib/supabase/client';
-import { formatPrecio } from '@/lib/productos';
+import { formatPrecio, productosDePedido } from '@/lib/productos';
+import { useCart } from '@/context/CartContext';
 
 const PAGO_LABELS = {
   mercadopago:   'Mercado Pago',
@@ -29,6 +30,24 @@ export default function HistorialPage() {
   const [expandido, setExpand]        = useState(null);
   const [cancelando, setCancelando]   = useState(null); // id del pedido que se está cancelando
   const [confirmCancel, setConfirm]   = useState(null); // id del pedido a confirmar cancelación
+  const [repitiendo, setRepitiendo]   = useState(null); // id del pedido que se está repitiendo
+  const [avisoRepetir, setAviso]      = useState(null); // { agregados, faltantes }
+
+  const { addItems, openCart } = useCart();
+
+  // Vuelve a cargar el pedido al carrito, pero con el precio y el stock de HOY:
+  // repetir un pedido con los precios viejos sería cobrarle mal al cliente.
+  const volverAPedir = async pedido => {
+    setRepitiendo(pedido.id);
+    setAviso(null);
+
+    const { disponibles, faltantes } = await productosDePedido(pedido.detalle_pedidos || []);
+    if (disponibles.length) addItems(disponibles);
+
+    setAviso({ agregados: disponibles.length, faltantes });
+    setRepitiendo(null);
+    if (disponibles.length) openCart();
+  };
 
   useEffect(() => {
     const load = async () => {
@@ -82,6 +101,46 @@ export default function HistorialPage() {
         </Link>
         <h1 className="text-2xl font-black text-gray-900">Mis pedidos</h1>
       </div>
+
+      {avisoRepetir && (
+        <div className={`flex items-start gap-2 rounded-xl p-3 mb-4 text-sm border ${
+          avisoRepetir.agregados
+            ? 'bg-green-50 border-green-200 text-green-800'
+            : 'bg-orange-50 border-orange-200 text-orange-800'
+        }`}>
+          <Info className="w-4 h-4 flex-shrink-0 mt-0.5" />
+          <div className="flex-1">
+            {avisoRepetir.agregados > 0
+              ? <p><strong>{avisoRepetir.agregados}</strong> producto{avisoRepetir.agregados !== 1 ? 's' : ''} al carrito, con los precios de hoy.</p>
+              : <p>Ninguno de esos productos está disponible ahora.</p>}
+            {avisoRepetir.faltantes.length > 0 && (
+              <p className="mt-1 text-xs opacity-80">
+                Sin stock o fuera de la página: {avisoRepetir.faltantes.slice(0, 4).join(', ')}
+                {avisoRepetir.faltantes.length > 4 && ` y ${avisoRepetir.faltantes.length - 4} más`}.
+              </p>
+            )}
+          </div>
+          <button onClick={() => setAviso(null)} className="opacity-50 hover:opacity-100 text-lg leading-none">×</button>
+        </div>
+      )}
+
+      {/* En un miniservice la compra se repite casi igual todas las semanas */}
+      {pedidos.length > 0 && (
+        <button onClick={() => volverAPedir(pedidos[0])} disabled={repitiendo === pedidos[0].id}
+          className="w-full flex items-center gap-3 bg-brand-purple-800 hover:bg-brand-purple-900 disabled:opacity-60 text-brand-yellow-400 rounded-2xl p-4 mb-5 transition-colors text-left">
+          <RotateCcw className={`w-5 h-5 flex-shrink-0 ${repitiendo === pedidos[0].id ? 'animate-spin' : ''}`} />
+          <div className="flex-1 min-w-0">
+            <p className="font-bold text-sm">
+              {repitiendo === pedidos[0].id ? 'Armando el carrito...' : 'Repetir mi último pedido'}
+            </p>
+            <p className="text-brand-purple-300 text-xs">
+              {new Date(pedidos[0].creado_en).toLocaleDateString('es-AR', { day: 'numeric', month: 'long' })}
+              {' · '}{(pedidos[0].detalle_pedidos || []).length} producto{(pedidos[0].detalle_pedidos || []).length !== 1 ? 's' : ''}
+              {' · '}{formatPrecio(pedidos[0].total)}
+            </p>
+          </div>
+        </button>
+      )}
 
       {pedidos.length === 0 ? (
         <div className="text-center py-20">
@@ -137,6 +196,12 @@ export default function HistorialPage() {
                       {pedido.direccion_entrega && <p><strong>Dirección:</strong> {pedido.direccion_entrega}</p>}
                       {pedido.observaciones && <p><strong>Nota:</strong> {pedido.observaciones}</p>}
                     </div>
+
+                    <button onClick={() => volverAPedir(pedido)} disabled={repitiendo === pedido.id}
+                      className="w-full flex items-center justify-center gap-2 border border-brand-purple-200 bg-brand-purple-50 text-brand-purple-800 hover:bg-brand-purple-100 disabled:opacity-60 text-sm font-semibold py-2.5 rounded-xl transition-colors mb-3">
+                      <RotateCcw className={`w-4 h-4 ${repitiendo === pedido.id ? 'animate-spin' : ''}`} />
+                      {repitiendo === pedido.id ? 'Armando el carrito...' : 'Volver a pedir esto'}
+                    </button>
 
                     {/* Botón cancelar — solo para pedidos pendientes */}
                     {puedeCancel && (

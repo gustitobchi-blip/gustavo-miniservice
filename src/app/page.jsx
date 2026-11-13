@@ -1,16 +1,24 @@
 import { CreditCard, Truck, Store, Shield, ArrowRight, Tag, Star } from 'lucide-react';
 import Link from 'next/link';
 import { categorias } from '@/data/mockData';
-import { getProductosServer as getProductos } from '@/lib/productos-server';
+import {
+  getDestacadosServer,
+  getOfertasServer,
+  contarProductosServer,
+} from '@/lib/productos-server';
 import ProductCard from '@/components/catalog/ProductCard';
 import HeroBanner from '@/components/home/HeroBanner';
 
 export const revalidate = 60; // revalidar cada 60 segundos
 
 export default async function HomePage() {
-  const productos = await getProductos();
-  const destacados = productos.filter(p => p.destacado).slice(0, 6);
-  const ofertas    = productos.filter(p => p.oferta).slice(0, 5);
+  // Tres consultas chicas en vez de bajar las ~2300 filas para mostrar 11
+  // productos y un número.
+  const [destacados, ofertas, totalProductos] = await Promise.all([
+    getDestacadosServer(6),
+    getOfertasServer(5),
+    contarProductosServer(),
+  ]);
 
   const beneficios = [
     { icon: <Truck className="w-7 h-7" />,    titulo: 'Envío a domicilio',  desc: 'Llegamos a tu puerta el mismo día en zonas cercanas.' },
@@ -108,7 +116,8 @@ export default async function HomePage() {
             ¿Listo para hacer tu pedido?
           </h2>
           <p className="text-brand-purple-800 text-lg mb-8 max-w-xl mx-auto">
-            Más de {productos.length} productos disponibles. Entrega rápida o retiro en el local.
+            {totalProductos > 0 ? `Más de ${totalProductos} productos disponibles. ` : ''}
+            Entrega rápida o retiro en el local.
           </p>
           <Link href="/catalogo"
             className="inline-flex items-center gap-2 bg-brand-purple-800 hover:bg-brand-purple-900 text-brand-yellow-400 font-bold px-8 py-4 rounded-2xl text-lg transition-all duration-200 shadow-lg hover:shadow-xl active:scale-95">

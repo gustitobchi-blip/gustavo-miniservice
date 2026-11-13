@@ -1,21 +1,30 @@
 'use client';
 import { useState, useEffect, useRef } from 'react';
 import Link from 'next/link';
-import { ArrowLeft, Plus, Pencil, Save, X, Search, Upload, ImageIcon, Package, EyeOff, Globe } from 'lucide-react';
+import { ArrowLeft, Plus, Pencil, Save, X, Search, Upload, ImageIcon, Package, EyeOff, Globe, Camera, ScanLine, Loader2 } from 'lucide-react';
 import { createClient } from '@/lib/supabase/client';
 import { categorias } from '@/data/mockData';
 import { formatPrecio } from '@/lib/productos';
+import { POR_PAGINA_ADMIN, terminosBusqueda } from '@/lib/productos-shared';
+import Paginacion from '@/components/catalog/Paginacion';
+import EscanerCodigoBarras from '@/components/admin/EscanerCodigoBarras';
 
 // Sin cod_barra: esa columna no existe en la tabla y hacía fallar el insert.
 const EMPTY = {
   codigo: '', descripcion: '', descripcion_web: '', precio: '', precio_anterior: '',
   categoria: 'Almacén General', stock: '', unidad: 'unidad',
-  oferta: false, destacado: false, activo: true, publicado: true, foto_url: '',
+  oferta: false, destacado: false, activo: true, publicado: true, foto_url: '', cod_barra: '',
 };
 
 export default function AdminProductos() {
   const [productos, setProductos] = useState([]);
+  const [total, setTotal]         = useState(0);
+  const [totalPaginas, setTotPag] = useState(1);
+  const [pagina, setPagina]       = useState(1);
   const [busqueda, setBusqueda]   = useState('');
+  // Lo que se tipea vs. lo que ya se consultó: sin el debounce cada letra
+  // dispararía una query contra Supabase.
+  const [busquedaAplicada, setBusquedaAplicada] = useState('');
   const [catFiltro, setCat]       = useState('');
   const [estado, setEstado]       = useState('publicados');
   const [loading, setLoading]     = useState(true);
@@ -29,57 +38,124 @@ export default function AdminProductos() {
   const [altaBuscando, setAltaBuscando] = useState(false);
   const [altaBuscada, setAltaBuscada] = useState(false);
   const [modoAlta, setModoAlta] = useState(false);
-  const fileRef = useRef();
+  const fileRef   = useRef();
+  const camaraRef = useRef();
+  const [escaneando, setEscaneando]           = useState(false);
+  const [codigoEscaneado, setCodigoEscaneado] = useState('');
   const supabase = createClient();
 
-  // PostgREST devuelve como máximo 1000 filas por request: hay que paginar o
-  // el panel muestra solo una parte del catálogo.
+  // Una página por vez. Antes se traían hasta 20.000 filas al browser y se
+  // filtraban en memoria; ahora el filtro, el orden y el corte los hace
+  // Supabase y llegan sólo las 50 que se ven.
+  const pedido = useRef(0);
+
   const cargar = async () => {
-    const PAGINA = 1000;
-    const filas = [];
+    const mio = ++pedido.current;
+    setLoading(true);
+    const desde = (pagina - 1) * POR_PAGINA_ADMIN;
 
-    for (let pagina = 0; pagina < 20; pagina++) {
-      const desde = pagina * PAGINA;
-      let q = supabase.from('productos').select('*');
-      if (estado === 'publicados')     q = q.eq('publicado', true);
-      if (estado === 'no-publicados')  q = q.eq('publicado', false);
+    let q = supabase.from('productos').select('*', { count: 'exact' });
+    if (estado === 'publicados')     q = q.eq('publicado', true);
+    if (estado === 'no-publicados')  q = q.eq('publicado', false);
+    if (catFiltro)                   q = q.eq('categoria', catFiltro);
 
-      const { data, error } = await q
-        .order('categoria').order('descripcion').order('id')
-        .range(desde, desde + PAGINA - 1);
-
-      if (error) break;
-      filas.push(...(data || []));
-      if (!data || data.length < PAGINA) break;
+    const palabras = terminosBusqueda(busquedaAplicada);
+    if (palabras.length === 1 && /^\d+$/.test(palabras[0])) {
+      // Un número suelto suele ser el código, no parte de la descripción.
+      q = q.or(`descripcion.ilike.%${palabras[0]}%,codigo.ilike.%${palabras[0]}%`);
+    } else {
+      palabras.forEach(palabra => { q = q.ilike('descripcion', `%${palabra}%`); });
     }
 
-    setProductos(filas);
+    const { data, count, error } = await q
+      .order('categoria').order('descripcion').order('id')
+      .range(desde, desde + POR_PAGINA_ADMIN - 1);
+
+    // Si mientras tanto salió otra consulta, esta respuesta ya quedó vieja.
+    if (mio !== pedido.current) return;
+
+    if (!error) {
+      setProductos(data || []);
+      setTotal(count || 0);
+      setTotPag(Math.max(1, Math.ceil((count || 0) / POR_PAGINA_ADMIN)));
+    }
     setLoading(false);
   };
 
-  useEffect(() => { setLoading(true); cargar(); }, [estado]); // eslint-disable-line react-hooks/exhaustive-deps
+  // 350ms sin teclas antes de consultar.
+  useEffect(() => {
+    const timer = setTimeout(() => setBusquedaAplicada(busqueda), 350);
+    return () => clearTimeout(timer);
+  }, [busqueda]);
+
+  // Cambiar un filtro vuelve a la primera página: quedarse en la 7 de un
+  // resultado que ahora tiene 2 páginas muestra una tabla vacía.
+  useEffect(() => { setPagina(1); }, [busquedaAplicada, catFiltro, estado]);
+
+  useEffect(() => { cargar(); }, [estado, catFiltro, busquedaAplicada, pagina]); // eslint-disable-line react-hooks/exhaustive-deps
 
   const abrirAlta = () => {
     setAltaBusqueda(''); setAltaResultados([]); setAltaBuscada(false);
+    setCodigoEscaneado('');
     setModal('buscar');
   };
   const abrirCrearAMano = () => { setModoAlta(false); setForm(EMPTY); setModal('crear'); };
 
   // Busca en toda la tabla, no solo en lo cargado: con ~6000 filas el filtrado
-  // tiene que pasar en Supabase. Se limpian los caracteres que romperían el
-  // filtro `or` de PostgREST.
-  const buscarParaAlta = async e => {
-    e.preventDefault();
-    const q = altaBusqueda.trim().replace(/[^\wÁÉÍÓÚÜÑáéíóúüñ\s.-]/g, ' ').trim();
-    if (!q) return;
+  // tiene que pasar en Supabase. Parte el texto en palabras igual que el
+  // buscador del cliente, así "aceite oliva" encuentra "ACEITE DE OLIVA ...".
+  const buscarParaAlta = async texto => {
+    const palabras = terminosBusqueda(texto);
+    if (!palabras.length) {
+      setAltaResultados([]); setAltaBuscada(false); setAltaBuscando(false);
+      return;
+    }
 
     setAltaBuscando(true);
-    const { data } = await supabase
-      .from('productos').select('*')
-      .or(`descripcion.ilike.%${q}%,codigo.ilike.%${q}%`)
-      .order('publicado').order('descripcion')
-      .limit(40);
+    let q = supabase.from('productos').select('*');
+
+    if (palabras.length === 1 && /^\d+$/.test(palabras[0])) {
+      q = q.or(`descripcion.ilike.%${palabras[0]}%,codigo.ilike.%${palabras[0]}%`);
+    } else {
+      palabras.forEach(palabra => { q = q.ilike('descripcion', `%${palabra}%`); });
+    }
+
+    const { data } = await q.order('publicado').order('descripcion').limit(40);
     setAltaResultados(data || []);
+    setAltaBuscada(true);
+    setAltaBuscando(false);
+  };
+
+  // Autocompletado: 350ms sin teclas y busca solo, sin apretar nada.
+  useEffect(() => {
+    if (modal !== 'buscar') return;
+    const timer = setTimeout(() => buscarParaAlta(altaBusqueda), 350);
+    return () => clearTimeout(timer);
+  }, [altaBusqueda, modal]); // eslint-disable-line react-hooks/exhaustive-deps
+
+  /**
+   * Un código escaneado se busca primero en cod_barra y, si no aparece, en el
+   * código interno del miniservice. Cuando no está en ningún lado, el admin
+   * busca el producto por nombre y al guardarlo le queda pegado el código:
+   * así el mapeo se arma solo con el uso.
+   */
+  const buscarPorCodigoBarra = async codigo => {
+    setEscaneando(false);
+    setCodigoEscaneado(codigo);
+    setAltaBusqueda(codigo);
+    setAltaBuscando(true);
+
+    let encontrados = [];
+    // La columna cod_barra puede no existir todavía: si falla, se sigue.
+    const porBarra = await supabase.from('productos').select('*').eq('cod_barra', codigo).limit(10);
+    if (!porBarra.error) encontrados = porBarra.data || [];
+
+    if (!encontrados.length) {
+      const { data } = await supabase.from('productos').select('*').eq('codigo', codigo).limit(10);
+      encontrados = data || [];
+    }
+
+    setAltaResultados(encontrados);
     setAltaBuscada(true);
     setAltaBuscando(false);
   };
@@ -93,6 +169,7 @@ export default function AdminProductos() {
       stock:           String(p.stock || ''),
       descripcion_web: p.descripcion_web || '',
       foto_url:        p.foto_url || '',
+      cod_barra:       p.cod_barra || codigoEscaneado || '',
       publicado:       true,
     });
     setModoAlta(true);
@@ -107,6 +184,7 @@ export default function AdminProductos() {
       stock:           String(p.stock || ''),
       descripcion_web: p.descripcion_web || '',
       foto_url:        p.foto_url || '',
+      cod_barra:       p.cod_barra || '',
     });
     setModal(p.id);
   };
@@ -117,11 +195,37 @@ export default function AdminProductos() {
     setForm(prev => ({ ...prev, [name]: type === 'checkbox' ? checked : value }));
   };
 
+  /**
+   * Una foto sacada con el celular pesa 3-5 MB. Subirla tal cual llena el
+   * storage y tarda muchísimo con datos móviles, así que se reescala a 1000px
+   * y se pasa a JPEG antes de mandarla.
+   */
+  const comprimir = file => new Promise(resolve => {
+    const url = URL.createObjectURL(file);
+    const img = new Image();
+
+    img.onload = () => {
+      URL.revokeObjectURL(url);
+      const MAX = 1000;
+      const escala = Math.min(1, MAX / Math.max(img.width, img.height));
+      const canvas = document.createElement('canvas');
+      canvas.width  = Math.round(img.width  * escala);
+      canvas.height = Math.round(img.height * escala);
+      canvas.getContext('2d').drawImage(img, 0, 0, canvas.width, canvas.height);
+      canvas.toBlob(blob => resolve(blob || file), 'image/jpeg', 0.82);
+    };
+    // Si el navegador no puede leerla, se sube el original antes que fallar.
+    img.onerror = () => { URL.revokeObjectURL(url); resolve(file); };
+    img.src = url;
+  });
+
   const subirImagen = async file => {
     setUploading(true);
-    const ext  = file.name.split('.').pop();
-    const path = `${Date.now()}.${ext}`;
-    const { error } = await supabase.storage.from('productos').upload(path, file);
+    const blob = await comprimir(file);
+    const path = `${Date.now()}.jpg`;
+    const { error } = await supabase.storage
+      .from('productos')
+      .upload(path, blob, { contentType: 'image/jpeg' });
     if (!error) {
       const { data: { publicUrl } } = supabase.storage.from('productos').getPublicUrl(path);
       setForm(p => ({ ...p, foto_url: publicUrl }));
@@ -150,13 +254,17 @@ export default function AdminProductos() {
       publicado:       !!form.publicado,
       actualizado_en:  new Date().toISOString(),
     };
-    if (modal === 'crear') {
+    const guardar = datos => modal === 'crear'
       // carga_manual protege a este producto de la despublicación automática:
       // no viene del miniservice, así que nunca va a estar en el JSON.
-      await supabase.from('productos').insert([{ ...payload, carga_manual: true }]);
-    } else {
-      await supabase.from('productos').update(payload).eq('id', modal);
-    }
+      ? supabase.from('productos').insert([{ ...datos, carga_manual: true }])
+      : supabase.from('productos').update(datos).eq('id', modal);
+
+    // cod_barra sólo existe si ya se corrió scripts/migracion_features.sql.
+    // Si la columna no está, se reintenta sin ella en vez de perder el cambio.
+    const conBarra = form.cod_barra ? { ...payload, cod_barra: form.cod_barra } : payload;
+    let { error } = await guardar(conBarra);
+    if (error && form.cod_barra) await guardar(payload);
     await cargar();
     setSaving(false);
     cerrar();
@@ -171,12 +279,6 @@ export default function AdminProductos() {
       .eq('id', id);
     await cargar();
   };
-
-  const filtrados = productos.filter(p => {
-    const q = busqueda.toLowerCase();
-    return (!q || (p.descripcion || '').toLowerCase().includes(q)) &&
-           (!catFiltro || p.categoria === catFiltro);
-  });
 
   return (
     <div className="min-h-screen bg-gray-50">
@@ -195,7 +297,7 @@ export default function AdminProductos() {
           <div className="relative flex-1 min-w-48">
             <Search className="absolute left-3 top-1/2 -translate-y-1/2 w-4 h-4 text-gray-400" />
             <input value={busqueda} onChange={e => setBusqueda(e.target.value)}
-              placeholder="Buscar producto..." className="input pl-10 bg-white" />
+              placeholder="Buscar por nombre o código..." className="input pl-10 bg-white" />
           </div>
           <select value={catFiltro} onChange={e => setCat(e.target.value)} className="input bg-white w-auto">
             <option value="">Todas las categorías</option>
@@ -206,7 +308,11 @@ export default function AdminProductos() {
             <option value="no-publicados">Fuera de la página</option>
             <option value="todos">Todos</option>
           </select>
-          <span className="self-center text-sm text-gray-500">{filtrados.length} productos</span>
+          <span className="self-center text-sm text-gray-500">
+            {loading ? 'Buscando...'
+              : total === 0 ? 'Sin resultados'
+              : `${(pagina - 1) * POR_PAGINA_ADMIN + 1}–${Math.min(pagina * POR_PAGINA_ADMIN, total)} de ${total}`}
+          </span>
         </div>
 
         {loading ? (
@@ -225,7 +331,7 @@ export default function AdminProductos() {
                 </tr>
               </thead>
               <tbody className="divide-y divide-gray-50">
-                {filtrados.map(p => (
+                {productos.map(p => (
                   <tr key={p.id} className="hover:bg-gray-50 transition-colors">
                     <td className="px-4 py-3">
                       <div className="flex items-center gap-3">
@@ -276,9 +382,22 @@ export default function AdminProductos() {
                 ))}
               </tbody>
             </table>
-            {filtrados.length === 0 && <div className="text-center py-12 text-gray-400">No hay productos</div>}
+            {productos.length === 0 && (
+              <div className="text-center py-12 text-gray-400">
+                {busquedaAplicada
+                  ? `No hay productos que coincidan con “${busquedaAplicada}”`
+                  : 'No hay productos'}
+              </div>
+            )}
           </div>
         )}
+
+        <Paginacion
+          pagina={pagina}
+          totalPaginas={totalPaginas}
+          onCambiar={p => { setPagina(p); window.scrollTo({ top: 0, behavior: 'smooth' }); }}
+          className="mt-6"
+        />
       </div>
 
       {/* Alta: primero se busca el producto en la base, después se publica */}
@@ -296,16 +415,36 @@ export default function AdminProductos() {
                 producto ya viene con el precio y el stock del miniservice.
               </p>
 
-              <form onSubmit={buscarParaAlta} className="flex gap-2">
+              <div className="flex gap-2">
                 <div className="relative flex-1">
                   <Search className="absolute left-3 top-1/2 -translate-y-1/2 w-4 h-4 text-gray-400" />
-                  <input autoFocus value={altaBusqueda} onChange={e => setAltaBusqueda(e.target.value)}
-                    placeholder="Código o nombre..." className="input pl-10" />
+                  <input autoFocus value={altaBusqueda}
+                    onChange={e => setAltaBusqueda(e.target.value)}
+                    onKeyDown={e => { if (e.key === 'Enter') { e.preventDefault(); buscarParaAlta(altaBusqueda); } }}
+                    placeholder="Escribí el nombre o el código..." className="input pl-10 pr-9" />
+                  {altaBuscando && (
+                    <Loader2 className="absolute right-3 top-1/2 -translate-y-1/2 w-4 h-4 text-brand-purple-400 animate-spin" />
+                  )}
                 </div>
-                <button type="submit" disabled={altaBuscando} className="btn-primary px-4 disabled:opacity-60">
-                  {altaBuscando ? 'Buscando...' : 'Buscar'}
+                <button type="button" onClick={() => setEscaneando(true)}
+                  title="Escanear el código de barras con la cámara"
+                  className="btn-primary px-4">
+                  <ScanLine className="w-4 h-4" />
+                  <span className="hidden sm:inline">Escanear</span>
                 </button>
-              </form>
+              </div>
+
+              {codigoEscaneado && (
+                <div className="flex items-start gap-2 bg-brand-purple-50 border border-brand-purple-200 rounded-xl p-3 text-xs text-brand-purple-900">
+                  <ScanLine className="w-4 h-4 flex-shrink-0 mt-0.5" />
+                  <p>
+                    Código escaneado: <strong>{codigoEscaneado}</strong>.{' '}
+                    {altaResultados.length > 0
+                      ? 'Elegí el producto de la lista.'
+                      : 'Ningún producto tiene ese código todavía. Buscalo por nombre y al guardarlo le queda asociado para la próxima.'}
+                  </p>
+                </div>
+              )}
 
               {altaBuscada && altaResultados.length === 0 && (
                 <p className="text-sm text-gray-400 text-center py-6">
@@ -365,21 +504,48 @@ export default function AdminProductos() {
                     <input value={form.foto_url}
                       onChange={e => setForm(p => ({ ...p, foto_url: e.target.value }))}
                       className="input text-xs" placeholder="URL de imagen" />
-                    <button type="button" onClick={() => fileRef.current?.click()} disabled={uploading}
-                      className="btn-outline text-xs py-1.5 px-3">
-                      <Upload className="w-3 h-3" />
-                      {uploading ? 'Subiendo...' : 'Subir archivo'}
-                    </button>
+                    <div className="flex gap-2 flex-wrap">
+                      {/* capture="environment" abre directo la cámara trasera
+                          del celular, para sacar la foto frente a la góndola */}
+                      <button type="button" onClick={() => camaraRef.current?.click()} disabled={uploading}
+                        className="btn-primary text-xs py-1.5 px-3 disabled:opacity-60">
+                        <Camera className="w-3 h-3" />
+                        {uploading ? 'Subiendo...' : 'Sacar foto'}
+                      </button>
+                      <button type="button" onClick={() => fileRef.current?.click()} disabled={uploading}
+                        className="btn-outline text-xs py-1.5 px-3 disabled:opacity-60">
+                        <Upload className="w-3 h-3" />
+                        Subir archivo
+                      </button>
+                    </div>
                     <input ref={fileRef} type="file" accept="image/*" className="hidden"
+                      onChange={e => e.target.files?.[0] && subirImagen(e.target.files[0])} />
+                    <input ref={camaraRef} type="file" accept="image/*" capture="environment" className="hidden"
                       onChange={e => e.target.files?.[0] && subirImagen(e.target.files[0])} />
                   </div>
                 </div>
               </div>
 
-              <div>
-                <label className="block text-xs font-semibold text-gray-600 mb-1.5">Código</label>
-                <input name="codigo" value={form.codigo} onChange={handleChange}
-                  className="input" placeholder="Código interno del miniservice" />
+              <div className="grid grid-cols-2 gap-3">
+                <div>
+                  <label className="block text-xs font-semibold text-gray-600 mb-1.5">Código</label>
+                  <input name="codigo" value={form.codigo} onChange={handleChange}
+                    className="input" placeholder="Código del miniservice" />
+                </div>
+                <div>
+                  <label className="block text-xs font-semibold text-gray-600 mb-1.5">
+                    Código de barras
+                  </label>
+                  <div className="flex gap-1.5">
+                    <input name="cod_barra" value={form.cod_barra || ''} onChange={handleChange}
+                      className="input flex-1" placeholder="Escaneá o escribí" />
+                    <button type="button" onClick={() => setEscaneando(true)}
+                      title="Escanear con la cámara"
+                      className="px-3 rounded-xl border border-gray-200 text-gray-500 hover:text-brand-purple-700 hover:border-brand-purple-300 transition-all">
+                      <ScanLine className="w-4 h-4" />
+                    </button>
+                  </div>
+                </div>
               </div>
 
               <div>
@@ -463,6 +629,22 @@ export default function AdminProductos() {
             </form>
           </div>
         </div>
+      )}
+
+      {/* Escáner: desde el alta busca el producto; desde la ficha sólo carga
+          el código en el formulario */}
+      {escaneando && (
+        <EscanerCodigoBarras
+          onCerrar={() => setEscaneando(false)}
+          onDetectar={codigo => {
+            if (modal === 'buscar') {
+              buscarPorCodigoBarra(codigo);
+            } else {
+              setForm(p => ({ ...p, cod_barra: codigo }));
+              setEscaneando(false);
+            }
+          }}
+        />
       )}
     </div>
   );
