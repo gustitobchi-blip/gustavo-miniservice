@@ -5,9 +5,10 @@
     powershell -ExecutionPolicy Bypass -File instalar_tarea.ps1          # instala
     powershell -ExecutionPolicy Bypass -File instalar_tarea.ps1 -Quitar  # desinstala
 
-  Corre a las 8:15, 8:45, 17:15 y 17:45 (el sistema genera el CSV a las 8:00 y 17:00).
-  Si el archivo no cambió, las corridas extra no hacen nada. Si la PC estaba apagada,
-  la tarea corre apenas se prende.
+  Corre de lunes a sábado a las 8:15, 8:45, 17:15 y 17:45 (el sistema genera el CSV
+  a las 8:00 y 17:00). Los domingos no corre. Si el archivo no cambió, las corridas
+  extra no hacen nada. Si la PC está apagada a esa hora, esa corrida se saltea (no se
+  recupera después).
 #>
 param([switch]$Quitar)
 
@@ -29,10 +30,11 @@ if (-not (Test-Path (Join-Path $dir 'config.json'))) { throw 'Primero creá conf
 $script   = Join-Path $dir 'sync_csv.ps1'
 $accion   = New-ScheduledTaskAction -Execute 'powershell.exe' `
               -Argument ('-NoProfile -ExecutionPolicy Bypass -File "{0}"' -f $script) -WorkingDirectory $dir
-$triggers = '08:15', '08:45', '17:15', '17:45' | ForEach-Object { New-ScheduledTaskTrigger -Daily -At $_ }
-$config   = New-ScheduledTaskSettingsSet -StartWhenAvailable -ExecutionTimeLimit (New-TimeSpan -Minutes 10)
+$dias     = 'Monday', 'Tuesday', 'Wednesday', 'Thursday', 'Friday', 'Saturday'
+$triggers = '08:15', '08:45', '17:15', '17:45' | ForEach-Object { New-ScheduledTaskTrigger -Weekly -DaysOfWeek $dias -At $_ }
+$config   = New-ScheduledTaskSettingsSet -ExecutionTimeLimit (New-TimeSpan -Minutes 10)
 $usuario  = New-ScheduledTaskPrincipal -UserId 'SYSTEM' -LogonType ServiceAccount -RunLevel Highest
 
 Register-ScheduledTask -TaskName $nombre -Action $accion -Trigger $triggers -Settings $config -Principal $usuario -Force | Out-Null
-Write-Host "Tarea '$nombre' instalada: 8:15, 8:45, 17:15 y 17:45 todos los días."
+Write-Host "Tarea '$nombre' instalada: lunes a sábado, 8:15, 8:45, 17:15 y 17:45."
 Write-Host "Para probarla ya: Start-ScheduledTask -TaskName '$nombre'   (después mirá sync_csv.log)"
