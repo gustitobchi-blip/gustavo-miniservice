@@ -5,6 +5,7 @@ import Image from 'next/image';
 import { X, ShoppingCart, Plus, Minus, Trash2, ArrowRight } from 'lucide-react';
 import { useCart } from '@/context/CartContext';
 import { formatPrecio } from '@/lib/productos';
+import { esPorPeso, pasoDe, formatCantidad, subtotalLinea, redondearKg, MAX_KG } from '@/lib/peso';
 
 export default function CartDrawer() {
   const { items, isOpen, closeCart, removeItem, updateCantidad, totalPrecio, totalItems } = useCart();
@@ -68,23 +69,24 @@ export default function CartDrawer() {
                 <div className="flex-1 min-w-0">
                   <p className="text-gray-900 font-medium text-sm truncate">{item.nombre}</p>
                   <p className="text-brand-purple-700 font-bold text-sm mt-0.5">
-                    {formatPrecio(item.precio)} c/u
+                    {esPorPeso(item) ? `${formatPrecio(item.precio)} / kg` : `${formatPrecio(item.precio)} c/u`}
                   </p>
 
                   {/* Cantidad */}
                   <div className="flex items-center gap-2 mt-2">
                     <button
-                      onClick={() => updateCantidad(item.id, item.cantidad - 1)}
+                      onClick={() => updateCantidad(item.id, redondearKg(item.cantidad - pasoDe(item)))}
                       className="w-6 h-6 rounded-full bg-brand-purple-100 hover:bg-brand-purple-200 flex items-center justify-center transition-colors"
                     >
                       <Minus className="w-3 h-3 text-brand-purple-800" />
                     </button>
-                    <span className="text-gray-900 font-semibold text-sm w-6 text-center">
-                      {item.cantidad}
+                    <span className="text-gray-900 font-semibold text-sm min-w-[1.5rem] text-center">
+                      {formatCantidad(item.cantidad, item.unidad)}
                     </span>
                     <button
-                      onClick={() => updateCantidad(item.id, item.cantidad + 1)}
-                      className="w-6 h-6 rounded-full bg-brand-purple-100 hover:bg-brand-purple-200 flex items-center justify-center transition-colors"
+                      onClick={() => updateCantidad(item.id, item.cantidad + pasoDe(item))}
+                      disabled={esPorPeso(item) && item.cantidad >= MAX_KG}
+                      className="w-6 h-6 rounded-full bg-brand-purple-100 hover:bg-brand-purple-200 flex items-center justify-center transition-colors disabled:opacity-30 disabled:cursor-not-allowed"
                     >
                       <Plus className="w-3 h-3 text-brand-purple-800" />
                     </button>
@@ -100,7 +102,7 @@ export default function CartDrawer() {
                     <Trash2 className="w-4 h-4" />
                   </button>
                   <p className="text-gray-900 font-bold text-sm">
-                    {formatPrecio(item.precio * item.cantidad)}
+                    {formatPrecio(subtotalLinea(item.precio, item.cantidad))}
                   </p>
                 </div>
               </div>

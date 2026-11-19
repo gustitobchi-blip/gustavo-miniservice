@@ -6,6 +6,9 @@ import { ShoppingCart, Plus, Minus, Truck, Store } from 'lucide-react';
 import { useCart } from '@/context/CartContext';
 import { formatPrecio } from '@/lib/productos';
 import ProductCard from '@/components/catalog/ProductCard';
+import { esPorPeso, formatCantidad, subtotalLinea, redondearKg, PASO_KG, MIN_KG, MAX_KG } from '@/lib/peso';
+
+const ATAJOS_KG = [0.25, 0.5, 1];
 
 /**
  * La parte interactiva del detalle. El producto y los relacionados llegan ya
@@ -14,11 +17,19 @@ import ProductCard from '@/components/catalog/ProductCard';
  */
 export default function ProductoDetalle({ producto, relacionados }) {
   const { addItem } = useCart();
-  const [cantidad, setCantidad] = useState(1);
+  const porPeso = esPorPeso(producto);
+  // Por peso el stock del sistema no es confiable al detalle: alcanza con que sea mayor a 0.
+  const stockAlto = porPeso ? producto.stock > 0 : producto.stock > 5;
+  const [cantidad, setCantidad] = useState(porPeso ? MIN_KG : 1);
   const [agregado, setAgregado] = useState(false);
 
+  const menos = () => setCantidad(porPeso ? Math.max(MIN_KG, redondearKg(cantidad - PASO_KG)) : Math.max(1, cantidad - 1));
+  const mas   = () => setCantidad(porPeso
+    ? Math.min(MAX_KG, redondearKg(cantidad + PASO_KG))
+    : Math.min(Math.max(producto.stock, 99), cantidad + 1));
+
   const handleAgregar = () => {
-    for (let i = 0; i < cantidad; i++) addItem(producto);
+    addItem(producto, cantidad);
     setAgregado(true);
     setTimeout(() => setAgregado(false), 2000);
   };
@@ -78,13 +89,17 @@ export default function ProductoDetalle({ producto, relacionados }) {
                 ¡Ahorrás {formatPrecio(producto.precioAnterior - producto.precio)}!
               </p>
             )}
-            <p className="text-gray-500 text-xs mt-1">por {producto.unidad}</p>
+            <p className="text-gray-500 text-xs mt-1">
+              {porPeso
+                ? `por kg · 100 g = ${formatPrecio(producto.precio / 10)}`
+                : `por ${producto.unidad}`}
+            </p>
           </div>
 
           {/* Stock */}
           <div className="flex items-center gap-2 mb-5">
-            <div className={`w-2 h-2 rounded-full ${producto.stock > 5 ? 'bg-green-500' : producto.stock > 0 ? 'bg-orange-500' : 'bg-red-500'}`} />
-            <span className={`text-sm font-medium ${producto.stock > 5 ? 'text-green-700' : producto.stock > 0 ? 'text-orange-600' : 'text-red-600'}`}>
+            <div className={`w-2 h-2 rounded-full ${stockAlto ? 'bg-green-500' : producto.stock > 0 ? 'bg-orange-500' : 'bg-red-500'}`} />
+            <span className={`text-sm font-medium ${stockAlto ? 'text-green-700' : producto.stock > 0 ? 'text-orange-600' : 'text-red-600'}`}>
               {producto.stock <= 0
                 ? 'Sin stock'
                 : producto.stock > 0 && producto.stock < 5 && (producto.unidad || '').toLowerCase() === 'uni'
@@ -97,20 +112,36 @@ export default function ProductoDetalle({ producto, relacionados }) {
           <div className="flex items-center gap-4 mb-6">
             <span className="text-sm font-medium text-gray-700">Cantidad:</span>
             <div className="flex items-center gap-2 bg-gray-100 rounded-xl p-1">
-              <button onClick={() => setCantidad(Math.max(1, cantidad - 1))}
+              <button onClick={menos}
                 className="w-8 h-8 flex items-center justify-center rounded-lg hover:bg-white hover:shadow-sm transition-all">
                 <Minus className="w-4 h-4 text-gray-700" />
               </button>
-              <span className="w-8 text-center font-bold text-gray-900">{cantidad}</span>
-              <button onClick={() => setCantidad(Math.min(Math.max(producto.stock, 99), cantidad + 1))}
-                className="w-8 h-8 flex items-center justify-center rounded-lg hover:bg-white hover:shadow-sm transition-all">
+              <span className={`${porPeso ? 'w-16' : 'w-8'} text-center font-bold text-gray-900`}>
+                {formatCantidad(cantidad, producto.unidad)}
+              </span>
+              <button onClick={mas} disabled={porPeso && cantidad >= MAX_KG}
+                className="w-8 h-8 flex items-center justify-center rounded-lg hover:bg-white hover:shadow-sm transition-all disabled:opacity-30 disabled:cursor-not-allowed">
                 <Plus className="w-4 h-4 text-gray-700" />
               </button>
             </div>
             <span className="text-sm text-gray-500">
-              Subtotal: <strong className="text-gray-900">{formatPrecio(producto.precio * cantidad)}</strong>
+              Subtotal: <strong className="text-gray-900">{formatPrecio(subtotalLinea(producto.precio, cantidad))}</strong>
             </span>
           </div>
+
+          {porPeso && (
+            <div className="-mt-3 mb-6">
+              <div className="flex flex-wrap gap-2">
+                {ATAJOS_KG.map(kg => (
+                  <button key={kg} onClick={() => setCantidad(kg)}
+                    className={`px-3 py-1 rounded-full text-xs font-semibold border transition-colors ${cantidad === kg ? 'bg-brand-purple-800 text-brand-yellow-400 border-brand-purple-800' : 'border-gray-200 text-gray-600 hover:border-brand-purple-300'}`}>
+                    {formatCantidad(kg, producto.unidad)}
+                  </button>
+                ))}
+              </div>
+              <p className="text-gray-400 text-xs mt-2">Elegí de a 100 g. Máximo {MAX_KG} kg por pedido.</p>
+            </div>
+          )}
 
           {/* CTAs */}
           <button onClick={handleAgregar} disabled={producto.stock === 0}

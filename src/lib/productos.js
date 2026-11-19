@@ -10,6 +10,7 @@
  */
 import { createClient } from '@/lib/supabase/client';
 import { normalizar, COLUMNAS, POR_PAGINA, terminosBusqueda, limpiarBusqueda } from '@/lib/productos-shared';
+import { esPorPeso, limitarCantidad, MIN_KG } from '@/lib/peso';
 
 export { formatPrecio } from '@/lib/productos-shared';
 
@@ -217,10 +218,12 @@ export async function productosDePedido(detalles) {
         faltantes.push(linea.descripcion || 'Producto');
         return;
       }
-      disponibles.push({
-        producto,
-        cantidad: Math.max(1, Math.min(Number(linea.cantidad) || 1, producto.stock)),
-      });
+      // Lo que se vende por peso no se limita por stock (el del sistema no es
+      // confiable en kilos) sino por el máximo por pedido.
+      const cantidad = esPorPeso(producto)
+        ? Math.max(MIN_KG, limitarCantidad(producto, Number(linea.cantidad) || MIN_KG))
+        : Math.max(1, Math.min(Number(linea.cantidad) || 1, producto.stock));
+      disponibles.push({ producto, cantidad });
     });
 
     return { disponibles, faltantes };

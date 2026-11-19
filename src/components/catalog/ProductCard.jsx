@@ -4,6 +4,7 @@ import Link from 'next/link';
 import { Plus, Minus, ShoppingCart } from 'lucide-react';
 import { useCart } from '@/context/CartContext';
 import { formatPrecio } from '@/lib/productos';
+import { esPorPeso, pasoDe, formatCantidad, subtotalLinea, redondearKg, MAX_KG } from '@/lib/peso';
 
 export default function ProductCard({ producto }) {
   const { addItem, updateCantidad, items } = useCart();
@@ -16,6 +17,8 @@ export default function ProductCard({ producto }) {
     : null;
 
   const sinStock = producto.stock <= 0;
+  const porPeso  = esPorPeso(producto);
+  const enElTope = porPeso && cantidad >= MAX_KG;
 
   return (
     <div className="card group flex flex-col overflow-hidden">
@@ -62,7 +65,13 @@ export default function ProductCard({ producto }) {
         <div className="mt-1">
           <p className="text-brand-purple-800 font-black text-lg leading-none">
             {formatPrecio(producto.precio)}
+            {porPeso && <span className="text-sm font-semibold text-gray-500"> / kg</span>}
           </p>
+          {porPeso && (
+            <p className="text-gray-500 text-xs mt-1">
+              100 g = {formatPrecio(producto.precio / 10)}
+            </p>
+          )}
           {producto.precioAnterior && (
             <p className="text-gray-400 text-xs line-through mt-0.5">
               {formatPrecio(producto.precioAnterior)}
@@ -87,21 +96,27 @@ export default function ProductCard({ producto }) {
           ) : (
             <div className="flex items-center justify-between bg-brand-purple-800 rounded-xl overflow-hidden">
               <button
-                onClick={() => updateCantidad(producto.id, cantidad - 1)}
+                onClick={() => updateCantidad(producto.id, redondearKg(cantidad - pasoDe(producto)))}
                 className="text-brand-yellow-400 hover:bg-brand-purple-900 w-12 h-12 flex items-center justify-center transition-colors active:bg-brand-purple-900 flex-shrink-0"
               >
                 <Minus className="w-4 h-4" />
               </button>
               <span className="text-white font-black text-base flex-1 text-center">
-                {cantidad}
+                {formatCantidad(cantidad, producto.unidad)}
               </span>
               <button
                 onClick={() => addItem(producto)}
-                className="text-brand-yellow-400 hover:bg-brand-purple-900 w-12 h-12 flex items-center justify-center transition-colors active:bg-brand-purple-900 flex-shrink-0"
+                disabled={enElTope}
+                className="text-brand-yellow-400 hover:bg-brand-purple-900 w-12 h-12 flex items-center justify-center transition-colors active:bg-brand-purple-900 flex-shrink-0 disabled:opacity-30 disabled:cursor-not-allowed"
               >
                 <Plus className="w-4 h-4" />
               </button>
             </div>
+          )}
+          {porPeso && cantidad > 0 && (
+            <p className="text-center text-xs text-gray-500 mt-1.5">
+              {formatPrecio(subtotalLinea(producto.precio, cantidad))}{enElTope ? ' · máximo por pedido' : ''}
+            </p>
           )}
         </div>
       </div>

@@ -2,6 +2,7 @@
 
 import { createContext, useContext, useReducer, useState, useRef, useEffect, useCallback } from 'react';
 import { createClient } from '@/lib/supabase/client';
+import { esPorPeso, pasoDe, sumarCantidad, limitarCantidad, redondearKg, subtotalLinea } from '@/lib/peso';
 
 const CartContext = createContext(null);
 
@@ -10,19 +11,25 @@ const CLAVE_LOCAL = 'gustavo-carrito';
 
 const cartReducer = (state, action) => {
   switch (action.type) {
+    // Suma `action.cantidad` (por defecto un paso: 1 unidad, o 100 g si se vende
+    // por peso). Los productos por peso tienen tope por pedido.
     case 'ADD_ITEM': {
+      const suma = action.cantidad ?? pasoDe(action.payload);
       const existing = state.items.find(i => i.id === action.payload.id);
       if (existing) {
         return {
           ...state,
           items: state.items.map(i =>
             i.id === action.payload.id
-              ? { ...i, cantidad: i.cantidad + 1 }
+              ? { ...i, cantidad: limitarCantidad(i, sumarCantidad(i, i.cantidad, suma)) }
               : i
           ),
         };
       }
-      return { ...state, items: [...state.items, { ...action.payload, cantidad: 1 }] };
+      return {
+        ...state,
+        items: [...state.items, { ...action.payload, cantidad: limitarCantidad(action.payload, suma) }],
+      };
     }
 
     // Carga de varios de una (volver a pedir). Fija la cantidad en vez de
@@ -32,8 +39,9 @@ const cartReducer = (state, action) => {
       const items = [...state.items];
       action.payload.forEach(({ producto, cantidad }) => {
         const i = items.findIndex(x => x.id === producto.id);
-        if (i >= 0) items[i] = { ...items[i], ...producto, cantidad };
-        else items.push({ ...producto, cantidad });
+        const fija = limitarCantidad(producto, cantidad);
+        if (i >= 0) items[i] = { ...items[i], ...producto, cantidad: fija };
+        else items.push({ ...producto, cantidad: fija });
       });
       return { ...state, items };
     }
@@ -45,13 +53,17 @@ const cartReducer = (state, action) => {
       return { ...state, items: state.items.filter(i => i.id !== action.payload) };
 
     case 'UPDATE_CANTIDAD': {
-      if (action.payload.cantidad <= 0) {
+      const actual = state.items.find(i => i.id === action.payload.id);
+      if (!actual) return state;
+      // Por peso se redondea antes de comparar: 0.3 - 0.1 - 0.1 - 0.1 no da 0 justo.
+      const nueva = esPorPeso(actual) ? redondearKg(action.payload.cantidad) : action.payload.cantidad;
+      if (nueva <= 0) {
         return { ...state, items: state.items.filter(i => i.id !== action.payload.id) };
       }
       return {
         ...state,
         items: state.items.map(i =>
-          i.id === action.payload.id ? { ...i, cantidad: action.payload.cantidad } : i
+          i.id === action.payload.id ? { ...i, cantidad: limitarCantidad(i, nueva) } : i
         ),
       };
     }
@@ -163,11 +175,13 @@ export function CartProvider({ children }) {
     return () => clearTimeout(timer);
   }, [state.items, usuarioId, hidratado]);
 
-  const totalItems  = state.items.reduce((sum, i) => sum + i.cantidad, 0);
-  const totalPrecio = state.items.reduce((sum, i) => sum + i.precio * i.cantidad, 0);
+  // Un producto por peso cuenta como 1 ítem en el globito del carrito, no como sus kilos.
+  const totalItems  = state.items.reduce((sum, i) => sum + (esPorPeso(i) ? 1 : i.cantidad), 0);
+  const totalPrecio = state.items.reduce((sum, i) => sum + subtotalLinea(i.precio, i.cantidad), 0);
 
-  const addItem = (producto) => {
-    dispatch({ type: 'ADD_ITEM', payload: producto });
+  /** `cantidad` es opcional: sin ella suma un paso (1 unidad o 100 g). */
+  const addItem = (producto, cantidad) => {
+    dispatch({ type: 'ADD_ITEM', payload: producto, cantidad });
     // Mostrar toast sin abrir el drawer
     if (toastTimer.current) clearTimeout(toastTimer.current);
     setCartToast({ visible: true, nombre: producto.nombre, imagen: producto.imagen || '' });

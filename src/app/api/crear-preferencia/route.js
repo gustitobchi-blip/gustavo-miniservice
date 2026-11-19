@@ -1,6 +1,7 @@
 import { Preference } from 'mercadopago';
 import { getMpClient } from '@/lib/mp';
 import { createAdminClient } from '@/lib/supabase/admin';
+import { lineaMercadoPago, subtotalLinea } from '@/lib/peso';
 
 /**
  * Crea la preferencia de Checkout Pro y devuelve el link de pago de Mercado Pago.
@@ -22,11 +23,12 @@ export async function POST(request) {
     // El detalle guardado en la base manda: así lo que se cobra en MP es siempre
     // lo mismo que ve el negocio en el pedido. Si no se puede leer, usamos el
     // carrito que mandó el navegador.
-    const mpItems = (await itemsDelPedido(pedidoId)) || items.map(item => ({
-      title:       String(item.nombre || 'Producto'),
-      quantity:    Number(item.cantidad),
-      unit_price:  Number(item.precio),
-      currency_id: 'ARS',
+    const mpItems = (await itemsDelPedido(pedidoId)) || items.map(item => lineaMercadoPago({
+      descripcion:     item.nombre,
+      cantidad:        item.cantidad,
+      precio_unitario: item.precio,
+      subtotal:        subtotalLinea(item.precio, item.cantidad),
+      unidad:          item.unidad,
     }));
 
     // El costo de envío también sale de la base (lo calculó el checkout al
@@ -94,17 +96,14 @@ async function itemsDelPedido(pedidoId) {
     const supabase = createAdminClient();
     const { data, error } = await supabase
       .from('detalle_pedidos')
-      .select('descripcion, cantidad, precio_unitario')
+      .select('*')
       .eq('pedido_id', pedidoId);
 
     if (error || !data?.length) return null;
 
-    return data.map(d => ({
-      title:       String(d.descripcion || 'Producto'),
-      quantity:    Number(d.cantidad),
-      unit_price:  Number(d.precio_unitario),
-      currency_id: 'ARS',
-    }));
+    // MP sólo acepta cantidades enteras: lo que se vende por peso viaja como un
+    // único ítem por el total (ver lineaMercadoPago).
+    return data.map(lineaMercadoPago);
   } catch {
     return null;
   }

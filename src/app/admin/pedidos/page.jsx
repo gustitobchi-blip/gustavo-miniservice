@@ -7,6 +7,7 @@ import {
 } from 'lucide-react';
 import { createClient } from '@/lib/supabase/client';
 import { formatPrecio } from '@/lib/productos';
+import { etiquetaCantidad } from '@/lib/peso';
 
 const ESTADOS = ['todos', 'pendiente_mp', 'pendiente', 'confirmado', 'en_camino', 'entregado', 'cancelado'];
 
@@ -322,7 +323,7 @@ export default function AdminPedidos() {
                       <div className="space-y-2 mb-4">
                         {(pedido.detalle_pedidos || []).map((item, i) => (
                           <div key={i} className="flex items-center gap-3 text-sm">
-                            <span className="bg-gray-100 text-gray-600 font-bold px-2 py-0.5 rounded-lg text-xs">x{item.cantidad}</span>
+                            <span className="bg-gray-100 text-gray-600 font-bold px-2 py-0.5 rounded-lg text-xs whitespace-nowrap">{etiquetaCantidad(item.cantidad, item.unidad)}</span>
                             <span className="flex-1 text-gray-700 truncate">{item.descripcion}</span>
                             <span className="font-semibold text-gray-900 flex-shrink-0">{formatPrecio(item.subtotal)}</span>
                           </div>

@@ -8,6 +8,7 @@ import {
 } from 'lucide-react';
 import { useCart } from '@/context/CartContext';
 import { formatPrecio } from '@/lib/productos';
+import { esPorPeso, pasoDe, formatCantidad, subtotalLinea, redondearKg, MAX_KG } from '@/lib/peso';
 import { createClient } from '@/lib/supabase/client';
 import { distanciaDesdeLocal, RADIO_MAXIMO_KM, COSTO_ENVIO } from '@/lib/envio';
 
@@ -188,13 +189,17 @@ export default function CarritoPage() {
 
     if (error) throw error;
 
+    // En lo que se vende por peso, `cantidad` son kilos (0.3 = 300 g) y
+    // `precio_unitario` el precio por kilo. La columna `unidad` sólo se manda
+    // en esas líneas, así los pedidos normales no dependen de ella.
     const detalles = items.map(item => ({
       pedido_id:       pedido.id,
       codigo_producto: String(item.codAb || item.id),
       descripcion:     item.nombre,
       cantidad:        item.cantidad,
       precio_unitario: item.precio,
-      subtotal:        item.precio * item.cantidad,
+      subtotal:        subtotalLinea(item.precio, item.cantidad),
+      ...(esPorPeso(item) ? { unidad: 'kg' } : {}),
     }));
 
     await supabase.from('detalle_pedidos').insert(detalles);
@@ -357,15 +362,18 @@ export default function CarritoPage() {
                     <div className="flex-1 min-w-0">
                       <p className="text-xs text-brand-purple-600 font-medium mb-0.5">{item.categoria}</p>
                       <p className="font-semibold text-gray-900 text-sm leading-snug">{item.nombre}</p>
-                      <p className="text-brand-purple-800 font-bold mt-1">{formatPrecio(item.precio)} c/u</p>
+                      <p className="text-brand-purple-800 font-bold mt-1">
+                        {esPorPeso(item) ? `${formatPrecio(item.precio)} / kg` : `${formatPrecio(item.precio)} c/u`}
+                      </p>
                       <div className="flex items-center gap-2 mt-2">
-                        <button onClick={() => updateCantidad(item.id, item.cantidad - 1)}
+                        <button onClick={() => updateCantidad(item.id, redondearKg(item.cantidad - pasoDe(item)))}
                           className="w-7 h-7 rounded-full bg-gray-100 hover:bg-gray-200 flex items-center justify-center transition-colors">
                           <Minus className="w-3 h-3" />
                         </button>
-                        <span className="font-bold text-sm w-6 text-center">{item.cantidad}</span>
-                        <button onClick={() => updateCantidad(item.id, item.cantidad + 1)}
-                          className="w-7 h-7 rounded-full bg-gray-100 hover:bg-gray-200 flex items-center justify-center transition-colors">
+                        <span className="font-bold text-sm min-w-[1.5rem] text-center">{formatCantidad(item.cantidad, item.unidad)}</span>
+                        <button onClick={() => updateCantidad(item.id, item.cantidad + pasoDe(item))}
+                          disabled={esPorPeso(item) && item.cantidad >= MAX_KG}
+                          className="w-7 h-7 rounded-full bg-gray-100 hover:bg-gray-200 flex items-center justify-center transition-colors disabled:opacity-30 disabled:cursor-not-allowed">
                           <Plus className="w-3 h-3" />
                         </button>
                       </div>
@@ -374,7 +382,7 @@ export default function CarritoPage() {
                       <button onClick={() => removeItem(item.id)} className="text-red-400 hover:text-red-600 transition-colors">
                         <Trash2 className="w-4 h-4" />
                       </button>
-                      <p className="font-black text-gray-900">{formatPrecio(item.precio * item.cantidad)}</p>
+                      <p className="font-black text-gray-900">{formatPrecio(subtotalLinea(item.precio, item.cantidad))}</p>
                     </div>
                   </div>
                 ))}
@@ -553,8 +561,10 @@ export default function CarritoPage() {
             <div className="space-y-2 mb-4 max-h-48 overflow-y-auto">
               {items.map(item => (
                 <div key={item.id} className="flex justify-between text-sm text-gray-600">
-                  <span className="truncate mr-2">{item.nombre} x{item.cantidad}</span>
-                  <span className="font-medium flex-shrink-0">{formatPrecio(item.precio * item.cantidad)}</span>
+                  <span className="truncate mr-2">
+                    {item.nombre} {esPorPeso(item) ? `· ${formatCantidad(item.cantidad, item.unidad)}` : `x${item.cantidad}`}
+                  </span>
+                  <span className="font-medium flex-shrink-0">{formatPrecio(subtotalLinea(item.precio, item.cantidad))}</span>
                 </div>
               ))}
             </div>

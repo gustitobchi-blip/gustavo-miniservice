@@ -8,6 +8,7 @@ import {
 } from 'lucide-react';
 import { createClient } from '@/lib/supabase/client';
 import { formatPrecio } from '@/lib/productos';
+import { etiquetaCantidad } from '@/lib/peso';
 
 export default function CadetePage() {
   const router   = useRouter();
@@ -54,7 +55,7 @@ export default function CadetePage() {
       // Usamos * para no fallar si alguna columna nueva no existe todavía
       const { data, error: pedErr } = await supabase
         .from('pedidos')
-        .select('*, detalle_pedidos(descripcion, cantidad, precio_unitario, subtotal)')
+        .select('*, detalle_pedidos(*)')
         .eq('estado', 'en_camino')
         .order('creado_en', { ascending: true });
 
@@ -290,8 +291,8 @@ export default function CadetePage() {
                         <div className="bg-gray-900/60 rounded-xl p-3 space-y-2">
                           {(p.detalle_pedidos || []).map((item, i) => (
                             <div key={i} className="flex items-center gap-3 text-sm">
-                              <span className="text-yellow-400 font-black w-6 text-center flex-shrink-0">
-                                ×{item.cantidad}
+                              <span className="text-yellow-400 font-black min-w-[1.5rem] text-center flex-shrink-0 whitespace-nowrap">
+                                {etiquetaCantidad(item.cantidad, item.unidad, '×')}
                               </span>
                               <span className="text-gray-300 flex-1 leading-snug">{item.descripcion}</span>
                             </div>

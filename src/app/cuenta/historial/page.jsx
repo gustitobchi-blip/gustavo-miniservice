@@ -5,6 +5,7 @@ import { useRouter } from 'next/navigation';
 import { ShoppingBag, ArrowLeft, Package, Clock, CheckCircle2, Truck, XCircle, AlertTriangle, CreditCard, RotateCcw, Info } from 'lucide-react';
 import { createClient } from '@/lib/supabase/client';
 import { formatPrecio, productosDePedido } from '@/lib/productos';
+import { etiquetaCantidad } from '@/lib/peso';
 import { useCart } from '@/context/CartContext';
 
 const PAGO_LABELS = {
@@ -182,7 +183,9 @@ export default function HistorialPage() {
                         <div key={i} className="flex items-center gap-3">
                           <div className="flex-1 min-w-0">
                             <p className="text-sm font-medium text-gray-900 truncate">{item.descripcion}</p>
-                            <p className="text-xs text-gray-500">x{item.cantidad} · {formatPrecio(item.precio_unitario)}</p>
+                            <p className="text-xs text-gray-500">
+                              {etiquetaCantidad(item.cantidad, item.unidad)} · {formatPrecio(item.precio_unitario)}{item.unidad === 'kg' ? ' / kg' : ''}
+                            </p>
                           </div>
                           <p className="text-sm font-bold text-gray-900">{formatPrecio(item.subtotal)}</p>
                         </div>
