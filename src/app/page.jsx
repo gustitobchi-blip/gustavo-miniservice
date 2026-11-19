@@ -4,7 +4,6 @@ import { categorias } from '@/data/mockData';
 import {
   getDestacadosServer,
   getOfertasServer,
-  contarProductosServer,
 } from '@/lib/productos-server';
 import ProductCard from '@/components/catalog/ProductCard';
 import HeroBanner from '@/components/home/HeroBanner';
@@ -12,12 +11,10 @@ import HeroBanner from '@/components/home/HeroBanner';
 export const revalidate = 60; // revalidar cada 60 segundos
 
 export default async function HomePage() {
-  // Tres consultas chicas en vez de bajar las ~2300 filas para mostrar 11
-  // productos y un número.
-  const [destacados, ofertas, totalProductos] = await Promise.all([
+  // Dos consultas chicas en vez de bajar las ~2300 filas para mostrar 11 productos.
+  const [destacados, ofertas] = await Promise.all([
     getDestacadosServer(6),
     getOfertasServer(5),
-    contarProductosServer(),
   ]);
 
   const beneficios = [
@@ -116,7 +113,7 @@ export default async function HomePage() {
             ¿Listo para hacer tu pedido?
           </h2>
           <p className="text-brand-purple-800 text-lg mb-8 max-w-xl mx-auto">
-            {totalProductos > 0 ? `Más de ${totalProductos} productos disponibles. ` : ''}
+            Una enorme variedad de productos para toda tu semana: de todo, en un solo lugar.
             Entrega rápida o retiro en el local.
           </p>
           <Link href="/catalogo"

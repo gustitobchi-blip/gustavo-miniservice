@@ -2,6 +2,7 @@
 
 import Link from 'next/link';
 import { ArrowRight, Tag, Truck, Clock } from 'lucide-react';
+import { HORARIOS_RESUMEN } from '@/lib/contacto';
 
 export default function HeroBanner() {
   return (
@@ -53,7 +54,7 @@ export default function HeroBanner() {
               </div>
               <div className="flex items-center gap-2 text-brand-purple-200 text-sm">
                 <Clock className="w-5 h-5 text-brand-yellow-400" />
-                Lun–Sáb 8:00–21:00
+                {HORARIOS_RESUMEN}
               </div>
               <div className="flex items-center gap-2 text-brand-purple-200 text-sm">
                 <span className="text-brand-yellow-400 font-bold">$</span>

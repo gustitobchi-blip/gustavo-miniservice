@@ -1,6 +1,6 @@
 import Link from 'next/link';
 import { Store, MapPin, Phone, Clock } from 'lucide-react';
-import { WHATSAPP_LINK, WHATSAPP_NUMERO_DISPLAY } from '@/lib/contacto';
+import { WHATSAPP_LINK, WHATSAPP_NUMERO_DISPLAY, HORARIOS } from '@/lib/contacto';
 import { categorias } from '@/data/mockData';
 
 export default function Footer() {
@@ -89,8 +89,9 @@ export default function Footer() {
               <li className="flex items-start gap-2">
                 <Clock className="w-4 h-4 text-brand-yellow-400 mt-0.5 flex-shrink-0" />
                 <div className="text-brand-purple-300 text-sm">
-                  <p>Lun–Sáb: 8:00 – 21:00</p>
-                  <p>Dom: 9:00 – 14:00</p>
+                  {HORARIOS.map(h => (
+                    <p key={h.dias}>{h.dias}: {h.horas}</p>
+                  ))}
                 </div>
               </li>
             </ul>

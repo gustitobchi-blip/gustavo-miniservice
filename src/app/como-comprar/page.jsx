@@ -1,7 +1,7 @@
 import Link from 'next/link';
 import { ShoppingCart, CreditCard, Package, Bike, Store, CheckCircle2, ArrowRight } from 'lucide-react';
 import { RADIO_MAXIMO_KM, COSTO_ENVIO } from '@/lib/envio';
-import { WHATSAPP_LINK } from '@/lib/contacto';
+import { WHATSAPP_LINK, HORARIOS_RESUMEN } from '@/lib/contacto';
 
 const costoEnvioFormateado = new Intl.NumberFormat('es-AR', {
   style: 'currency', currency: 'ARS', minimumFractionDigits: 0,
@@ -90,7 +90,7 @@ export default function ComoComprarPage() {
             <p className="text-brand-purple-200 text-sm leading-relaxed">
               Sin costo adicional. Te avisamos cuando el pedido está listo. Pasás, mostrás el número de pedido y retirás.
             </p>
-            <p className="mt-3 text-brand-yellow-400 text-sm font-semibold">Lun–Sáb 8:00 – 21:00 · Dom 9:00 – 14:00</p>
+            <p className="mt-3 text-brand-yellow-400 text-sm font-semibold">{HORARIOS_RESUMEN}</p>
           </div>
           <div className="bg-brand-yellow-400 text-brand-purple-900 rounded-2xl p-6">
             <Bike className="w-8 h-8 mb-3" />

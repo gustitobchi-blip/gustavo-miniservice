@@ -1,7 +1,7 @@
 import Link from 'next/link';
 import { Truck, Store, Clock, MapPin, Phone, CheckCircle2 } from 'lucide-react';
 import { RADIO_MAXIMO_KM, COSTO_ENVIO } from '@/lib/envio';
-import { WHATSAPP_LINK } from '@/lib/contacto';
+import { WHATSAPP_LINK, HORARIOS } from '@/lib/contacto';
 
 const costoEnvioFormateado = new Intl.NumberFormat('es-AR', {
   style: 'currency', currency: 'ARS', minimumFractionDigits: 0,
@@ -46,8 +46,9 @@ export default function EnviosPage() {
                 <Clock className="w-4 h-4 text-brand-purple-600 mt-0.5 flex-shrink-0" />
                 <div>
                   <p className="text-sm font-semibold text-brand-purple-800">Horarios de atención</p>
-                  <p className="text-sm text-brand-purple-600">Lunes a Sábado: 8:00 – 21:00</p>
-                  <p className="text-sm text-brand-purple-600">Domingo: 9:00 – 14:00</p>
+                  {HORARIOS.map(h => (
+                    <p key={h.dias} className="text-sm text-brand-purple-600">{h.dias}: {h.horas}</p>
+                  ))}
                 </div>
               </div>
               <div className="flex items-start gap-2">
