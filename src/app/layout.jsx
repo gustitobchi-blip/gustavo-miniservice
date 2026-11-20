@@ -1,6 +1,7 @@
 import './globals.css';
 import { CartProvider } from '@/context/CartContext';
 import ShopWrapper from '@/components/layout/ShopWrapper';
+import RedirigirVerificacion from '@/components/layout/RedirigirVerificacion';
 
 // metadataBase hace que las URLs relativas de openGraph se resuelvan a
 // absolutas. WhatsApp y Facebook descartan las relativas, así que sin esto la
@@ -27,6 +28,7 @@ export default function RootLayout({ children }) {
     <html lang="es">
       <body>
         <CartProvider>
+          <RedirigirVerificacion />
           <div className="min-h-screen flex flex-col">
             <ShopWrapper>
               {children}

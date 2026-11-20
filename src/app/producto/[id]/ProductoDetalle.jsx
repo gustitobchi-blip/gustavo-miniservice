@@ -161,7 +161,7 @@ export default function ProductoDetalle({ producto, relacionados }) {
             </div>
             <div className="flex items-center gap-3 text-sm text-gray-600">
               <Store className="w-4 h-4 text-brand-purple-600" />
-              <span>Retiro gratis en el local</span>
+              <span>Retiro en el local</span>
             </div>
           </div>
         </div>

@@ -1,8 +1,8 @@
 'use client';
-import { useState } from 'react';
+import { useState, useEffect } from 'react';
 import Link from 'next/link';
 import { useRouter, useSearchParams } from 'next/navigation';
-import { Store, Mail, Lock, Eye, EyeOff, LogIn } from 'lucide-react';
+import { Store, Mail, Lock, Eye, EyeOff, LogIn, CheckCircle2 } from 'lucide-react';
 import { createClient } from '@/lib/supabase/client';
 import { Suspense } from 'react';
 
@@ -15,6 +15,24 @@ function LoginForm() {
   const [showPass, setShow]   = useState(false);
   const [loading, setLoading] = useState(false);
   const [error, setError]     = useState('');
+  const [aviso, setAviso]     = useState(null); // 'verificado' | 'vencido' (viene del link del mail)
+
+  // Al llegar desde el mail de confirmación: avisa si la cuenta quedó verificada
+  // o si el link ya no sirve, y limpia la barra de direcciones.
+  useEffect(() => {
+    const busqueda = new URLSearchParams(window.location.search);
+    const hash     = new URLSearchParams(window.location.hash.replace(/^#/, ''));
+
+    if (hash.get('error_code') || hash.get('error') || busqueda.get('verificacion') === 'error') {
+      setAviso('vencido');
+    } else if (busqueda.get('verificado') || busqueda.get('code') || hash.get('type') === 'signup') {
+      setAviso('verificado');
+    } else {
+      return;
+    }
+    const next = busqueda.get('next');
+    window.history.replaceState({}, '', next ? `/cuenta/login?next=${encodeURIComponent(next)}` : '/cuenta/login');
+  }, []);
 
   const handleChange = e => setForm(p => ({ ...p, [e.target.name]: e.target.value }));
 
@@ -75,6 +93,20 @@ function LoginForm() {
               Registrate gratis
             </Link>
           </p>
+
+          {aviso === 'verificado' && (
+            <div className="flex items-start gap-2 bg-green-50 border border-green-200 text-green-700 text-sm px-4 py-3 rounded-xl mb-5">
+              <CheckCircle2 className="w-4 h-4 flex-shrink-0 mt-0.5" />
+              <span><strong>¡Cuenta verificada!</strong> Ya podés iniciar sesión con tu email y tu contraseña.</span>
+            </div>
+          )}
+
+          {aviso === 'vencido' && (
+            <div className="bg-amber-50 border border-amber-200 text-amber-800 text-sm px-4 py-3 rounded-xl mb-5">
+              El link de verificación ya se usó o venció. Si ya verificaste tu cuenta, iniciá sesión acá abajo.
+              Si no, registrate de nuevo o escribinos por WhatsApp.
+            </div>
+          )}
 
           {error && (
             <div className="bg-red-50 border border-red-200 text-red-700 text-sm px-4 py-3 rounded-xl mb-5">

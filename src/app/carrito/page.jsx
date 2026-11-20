@@ -10,7 +10,7 @@ import { useCart } from '@/context/CartContext';
 import { formatPrecio } from '@/lib/productos';
 import { esPorPeso, pasoDe, formatCantidad, subtotalLinea, redondearKg, MAX_KG } from '@/lib/peso';
 import { createClient } from '@/lib/supabase/client';
-import { COSTO_ENVIO } from '@/lib/envio';
+import { COSTO_ENVIO, RADIO_MAXIMO_KM } from '@/lib/envio';
 import { cargarPerfil } from '@/lib/perfil';
 import { useDireccion } from '@/lib/useDireccion';
 import CampoDireccion from '@/components/direccion/CampoDireccion';
@@ -23,7 +23,7 @@ const METODOS_PAGO = [
 
 const METODOS_ENTREGA = [
   { id: 'retiro',   label: 'Retiro en el local',   icon: <Store className="w-5 h-5" />, desc: 'Sin costo adicional' },
-  { id: 'delivery', label: 'Delivery a domicilio', icon: <Bike  className="w-5 h-5" />, desc: 'Consultá costo según zona' },
+  { id: 'delivery', label: 'Delivery a domicilio', icon: <Bike  className="w-5 h-5" />, desc: `${formatPrecio(COSTO_ENVIO)} · hasta ${RADIO_MAXIMO_KM} km del local` },
 ];
 
 export default function CarritoPage() {
@@ -495,16 +495,15 @@ export default function CarritoPage() {
               <div className="flex justify-between text-sm text-gray-600">
                 <span>Subtotal</span><span>{formatPrecio(totalPrecio)}</span>
               </div>
-              <div className="flex justify-between text-sm text-gray-600">
-                <span>Envío</span>
-                <span className={entrega === 'retiro' || geoStatus === 'ok' ? 'text-green-600 font-medium' : 'text-gray-400 font-medium'}>
-                  {entrega === 'retiro'
-                    ? 'Gratis'
-                    : geoStatus === 'ok'
-                      ? formatPrecio(COSTO_ENVIO)
-                      : 'A verificar'}
-                </span>
-              </div>
+              {/* Con retiro en el local no hay envío: no se muestra la línea. */}
+              {entrega === 'delivery' && (
+                <div className="flex justify-between text-sm text-gray-600">
+                  <span>Envío</span>
+                  <span className={geoStatus === 'ok' ? 'text-green-600 font-medium' : 'text-gray-400 font-medium'}>
+                    {geoStatus === 'ok' ? formatPrecio(COSTO_ENVIO) : 'A verificar'}
+                  </span>
+                </div>
+              )}
               <div className="flex justify-between font-black text-lg text-gray-900 pt-2 border-t border-gray-100">
                 <span>Total</span>
                 <span className="text-brand-purple-800">{formatPrecio(totalConEnvio)}</span>

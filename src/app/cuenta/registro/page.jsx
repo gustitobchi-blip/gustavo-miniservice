@@ -73,7 +73,11 @@ export default function RegistroPage() {
     const { data, error: err } = await supabase.auth.signUp({
       email: form.email.trim(),
       password: form.password,
-      options: { data: perfil },
+      options: {
+        data: perfil,
+        // El link del mail de confirmación vuelve al sitio y cae en el login.
+        emailRedirectTo: `${window.location.origin}/auth/confirm`,
+      },
     });
 
     if (err) {

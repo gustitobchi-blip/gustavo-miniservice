@@ -2,10 +2,11 @@
 import { useState, useEffect } from 'react';
 import Link from 'next/link';
 import { useRouter } from 'next/navigation';
-import { ShoppingBag, ArrowLeft, Package, Clock, CheckCircle2, Truck, XCircle, AlertTriangle, CreditCard, RotateCcw, Info } from 'lucide-react';
+import { ShoppingBag, ArrowLeft, Package, Clock, CheckCircle2, Truck, XCircle, AlertTriangle, CreditCard, RotateCcw, Info, Store } from 'lucide-react';
 import { createClient } from '@/lib/supabase/client';
 import { formatPrecio, productosDePedido } from '@/lib/productos';
 import { etiquetaCantidad } from '@/lib/peso';
+import { etiquetaEstado, esRetiro } from '@/lib/estados';
 import { useCart } from '@/context/CartContext';
 
 const PAGO_LABELS = {
@@ -20,6 +21,7 @@ const ESTADO_CONFIG = {
   pendiente:  { label: 'Pendiente',  icon: Clock,        color: 'text-yellow-600 bg-yellow-50 border-yellow-200' },
   confirmado: { label: 'Confirmado', icon: CheckCircle2, color: 'text-blue-600 bg-blue-50 border-blue-200' },
   en_camino:  { label: 'En camino',  icon: Truck,        color: 'text-purple-600 bg-purple-50 border-purple-200' },
+  listo_retiro: { label: 'Listo para retirar', icon: Store, color: 'text-teal-600 bg-teal-50 border-teal-200' },
   entregado:  { label: 'Entregado',  icon: Package,      color: 'text-green-600 bg-green-50 border-green-200' },
   cancelado:  { label: 'Cancelado',  icon: XCircle,      color: 'text-red-600 bg-red-50 border-red-200' },
 };
@@ -162,7 +164,7 @@ export default function HistorialPage() {
                 <button onClick={() => setExpand(isOpen ? null : pedido.id)}
                   className="w-full p-5 flex items-center gap-4 text-left hover:bg-gray-50 transition-colors">
                   <span className={`inline-flex items-center gap-1.5 px-2.5 py-1 rounded-full text-xs font-semibold border ${cfg.color}`}>
-                    <Icon className="w-3 h-3" />{cfg.label}
+                    <Icon className="w-3 h-3" />{etiquetaEstado(pedido.estado, pedido.forma_entrega)}
                   </span>
                   <div className="flex-1 min-w-0">
                     <p className="font-semibold text-gray-900 text-sm">Pedido #{String(pedido.id).padStart(6, '0')}</p>
@@ -194,9 +196,9 @@ export default function HistorialPage() {
 
                     {/* Info del pedido */}
                     <div className="bg-gray-50 rounded-xl p-3 text-xs text-gray-600 space-y-1 mb-4">
-                      <p><strong>Entrega:</strong> {pedido.forma_entrega === 'retiro' ? 'Retiro en local' : 'Delivery'}</p>
+                      <p><strong>Entrega:</strong> {esRetiro(pedido.forma_entrega) ? 'Retiro en local' : 'Delivery'}</p>
                       <p><strong>Pago:</strong> {PAGO_LABELS[pedido.forma_pago] || pedido.forma_pago}</p>
-                      {pedido.direccion_entrega && <p><strong>Dirección:</strong> {pedido.direccion_entrega}</p>}
+                      {!esRetiro(pedido.forma_entrega) && pedido.direccion_entrega && <p><strong>Dirección:</strong> {pedido.direccion_entrega}</p>}
                       {pedido.observaciones && <p><strong>Nota:</strong> {pedido.observaciones}</p>}
                     </div>
 

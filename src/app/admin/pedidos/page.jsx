@@ -3,13 +3,14 @@ import { useState, useEffect } from 'react';
 import Link from 'next/link';
 import {
   ArrowLeft, Search, Clock, CheckCircle2, Truck, Package,
-  XCircle, ChevronDown, ChevronUp, RefreshCw, Trash2, Edit3, Save, X, CreditCard
+  XCircle, ChevronDown, ChevronUp, RefreshCw, Trash2, Edit3, Save, X, CreditCard, Store
 } from 'lucide-react';
 import { createClient } from '@/lib/supabase/client';
 import { formatPrecio } from '@/lib/productos';
 import { etiquetaCantidad } from '@/lib/peso';
+import { etiquetaEstado, siguienteEstado, estadoCoherente, estadosElegibles, esRetiro } from '@/lib/estados';
 
-const ESTADOS = ['todos', 'pendiente_mp', 'pendiente', 'confirmado', 'en_camino', 'entregado', 'cancelado'];
+const ESTADOS = ['todos', 'pendiente_mp', 'pendiente', 'confirmado', 'en_camino', 'listo_retiro', 'entregado', 'cancelado'];
 
 const ESTADO_CFG = {
   // Pedido de Mercado Pago que todavía no se acreditó (lo confirma solo el webhook / la vuelta al sitio)
@@ -17,6 +18,8 @@ const ESTADO_CFG = {
   pendiente:  { label: 'Pendiente',  icon: Clock,         color: 'bg-yellow-100 text-yellow-700 border-yellow-200' },
   confirmado: { label: 'Confirmado', icon: CheckCircle2,  color: 'bg-blue-100 text-blue-700 border-blue-200' },
   en_camino:  { label: 'En camino',  icon: Truck,         color: 'bg-purple-100 text-purple-700 border-purple-200' },
+  // Pedido para retirar: reemplaza a "En camino" (no hay envío)
+  listo_retiro: { label: 'Listo para retirar', icon: Store,   color: 'bg-teal-100 text-teal-700 border-teal-200' },
   entregado:  { label: 'Entregado',  icon: Package,       color: 'bg-green-100 text-green-700 border-green-200' },
   cancelado:  { label: 'Cancelado',  icon: XCircle,       color: 'bg-red-100 text-red-700 border-red-200' },
 };
@@ -30,13 +33,6 @@ const PAGO_LABELS = {
   efectivo:      'Efectivo',
   tarjeta:       'Tarjeta (histórico)',
   transferencia: 'Transferencia (histórico)',
-};
-
-const SIGUIENTE_ESTADO = {
-  pendiente_mp: 'confirmado',
-  pendiente:  'confirmado',
-  confirmado: 'en_camino',
-  en_camino:  'entregado',
 };
 
 export default function AdminPedidos() {
@@ -224,7 +220,8 @@ export default function AdminPedidos() {
               const cfg = ESTADO_CFG[pedido.estado] || ESTADO_CFG.pendiente;
               const Icon = cfg.icon;
               const isOpen = expandido === pedido.id;
-              const siguiente = SIGUIENTE_ESTADO[pedido.estado];
+              const siguiente = siguienteEstado(pedido.estado, pedido.forma_entrega);
+              const etiqueta  = etiquetaEstado(pedido.estado, pedido.forma_entrega);
               const esEditando = editando === pedido.id;
               const esBorrando = confirmarBorrar === pedido.id;
 
@@ -234,7 +231,7 @@ export default function AdminPedidos() {
                   {/* Cabecera */}
                   <div className="p-4 flex items-center gap-3 flex-wrap">
                     <span className={`inline-flex items-center gap-1.5 px-2.5 py-1 rounded-full text-xs font-semibold border ${cfg.color}`}>
-                      <Icon className="w-3 h-3" />{cfg.label}
+                      <Icon className="w-3 h-3" />{etiqueta}
                     </span>
 
                     <div className="flex-1 min-w-0">
@@ -259,7 +256,7 @@ export default function AdminPedidos() {
                       <button onClick={() => cambiarEstado(pedido.id, siguiente)}
                         disabled={actualizando === pedido.id}
                         className="text-xs font-semibold bg-brand-purple-800 hover:bg-brand-purple-900 disabled:opacity-50 text-brand-yellow-400 px-3 py-1.5 rounded-xl transition-colors whitespace-nowrap">
-                        {actualizando === pedido.id ? '...' : `→ ${ESTADO_CFG[siguiente].label}`}
+                        {actualizando === pedido.id ? '...' : `→ ${etiquetaEstado(siguiente, pedido.forma_entrega)}`}
                       </button>
                     )}
 
@@ -341,15 +338,20 @@ export default function AdminPedidos() {
                               <select value={editForm.estado}
                                 onChange={e => setEditForm(f => ({ ...f, estado: e.target.value }))}
                                 className="input text-sm py-1.5">
-                                {Object.keys(ESTADO_CFG).map(e => (
-                                  <option key={e} value={e}>{ESTADO_CFG[e].label}</option>
+                                {estadosElegibles(editForm.forma_entrega).map(e => (
+                                  <option key={e} value={e}>{etiquetaEstado(e, editForm.forma_entrega)}</option>
                                 ))}
                               </select>
                             </div>
                             <div>
                               <label className="text-xs text-gray-500 font-semibold block mb-1">Entrega</label>
                               <select value={editForm.forma_entrega}
-                                onChange={e => setEditForm(f => ({ ...f, forma_entrega: e.target.value }))}
+                                onChange={e => setEditForm(f => ({
+                                  ...f,
+                                  forma_entrega: e.target.value,
+                                  // en camino ↔ listo para retirar según el tipo de entrega
+                                  estado: estadoCoherente(f.estado, e.target.value),
+                                }))}
                                 className="input text-sm py-1.5">
                                 <option value="retiro">Retiro en local</option>
                                 <option value="delivery">Delivery</option>
@@ -377,12 +379,14 @@ export default function AdminPedidos() {
                             </div>
                           </div>
 
-                          <div>
-                            <label className="text-xs text-gray-500 font-semibold block mb-1">Dirección de entrega</label>
-                            <input value={editForm.direccion_entrega}
-                              onChange={e => setEditForm(f => ({ ...f, direccion_entrega: e.target.value }))}
-                              className="input text-sm py-1.5 w-full" placeholder="Dirección..." />
-                          </div>
+                          {!esRetiro(editForm.forma_entrega) && (
+                            <div>
+                              <label className="text-xs text-gray-500 font-semibold block mb-1">Dirección de entrega</label>
+                              <input value={editForm.direccion_entrega}
+                                onChange={e => setEditForm(f => ({ ...f, direccion_entrega: e.target.value }))}
+                                className="input text-sm py-1.5 w-full" placeholder="Dirección..." />
+                            </div>
+                          )}
 
                           <div>
                             <label className="text-xs text-gray-500 font-semibold block mb-1">Observaciones</label>
@@ -408,9 +412,9 @@ export default function AdminPedidos() {
                       ) : (
                         /* Vista info normal */
                         <div className="bg-gray-50 rounded-xl p-3 text-xs text-gray-600 space-y-1">
-                          <p><strong>Entrega:</strong> {pedido.forma_entrega === 'retiro' ? 'Retiro en local' : 'Delivery'}</p>
+                          <p><strong>Entrega:</strong> {esRetiro(pedido.forma_entrega) ? 'Retiro en local' : 'Delivery'}</p>
                           <p><strong>Pago:</strong> {PAGO_LABELS[pedido.forma_pago] || pedido.forma_pago}</p>
-                          {pedido.direccion_entrega && <p><strong>Dirección:</strong> {pedido.direccion_entrega}</p>}
+                          {!esRetiro(pedido.forma_entrega) && pedido.direccion_entrega && <p><strong>Dirección:</strong> {pedido.direccion_entrega}</p>}
                           {pedido.observaciones && <p><strong>Nota:</strong> {pedido.observaciones}</p>}
                         </div>
                       )}

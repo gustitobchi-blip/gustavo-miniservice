@@ -8,6 +8,7 @@ import {
 } from 'lucide-react';
 import { createClient } from '@/lib/supabase/client';
 import { formatPrecio } from '@/lib/productos';
+import { etiquetaEstado } from '@/lib/estados';
 
 // Un pedido cancelado o esperando que MP acredite no es una venta.
 const ESTADOS_EXCLUIDOS = ['cancelado', 'pendiente_mp'];
@@ -202,6 +203,8 @@ export default function AdminDashboard() {
     pendiente: 'bg-yellow-100 text-yellow-700',
     confirmado: 'bg-blue-100 text-blue-700',
     en_camino: 'bg-purple-100 text-purple-700',
+    listo_retiro: 'bg-teal-100 text-teal-700',
+    pendiente_mp: 'bg-orange-100 text-orange-700',
     entregado: 'bg-green-100 text-green-700',
     cancelado: 'bg-red-100 text-red-700',
   };
@@ -392,7 +395,7 @@ export default function AdminDashboard() {
               {pedidosRecientes.map(p => (
                 <div key={p.id} className="flex items-center gap-3 py-2 border-b border-gray-50 last:border-0">
                   <span className={`text-xs font-semibold px-2 py-0.5 rounded-full ${ESTADO_COLOR[p.estado] || 'bg-gray-100 text-gray-600'}`}>
-                    {p.estado}
+                    {etiquetaEstado(p.estado, p.forma_entrega)}
                   </span>
                   <p className="text-sm text-gray-700 flex-1">
                     {p.nombre_cliente || 'Cliente'} · #{String(p.id).slice(-6).toUpperCase()}
