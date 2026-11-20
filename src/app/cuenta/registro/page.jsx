@@ -1,16 +1,18 @@
 'use client';
-import { useState } from 'react';
+import { useState, useEffect } from 'react';
 import Link from 'next/link';
-import { useRouter } from 'next/navigation';
-import { Store, Mail, Lock, Eye, EyeOff, User, UserPlus } from 'lucide-react';
+import { Store, Mail, Lock, Eye, EyeOff, UserPlus } from 'lucide-react';
 import { createClient } from '@/lib/supabase/client';
+import { guardarPerfil } from '@/lib/perfil';
+import { useDireccion } from '@/lib/useDireccion';
+import CampoDireccion from '@/components/direccion/CampoDireccion';
 
 export default function RegistroPage() {
-  const router = useRouter();
   const [form, setForm] = useState({
     nombre: '', apellido: '', email: '', password: '', confirmar: '',
-    telefono: '', direccion: '', barrio: '', ciudad: ''
+    telefono: '', barrio: '', ciudad: ''
   });
+  const dir = useDireccion();
   const [showPass, setShow]   = useState(false);
   const [loading, setLoading] = useState(false);
   const [error, setError]     = useState('');
@@ -18,19 +20,60 @@ export default function RegistroPage() {
 
   const handleChange = e => setForm(p => ({ ...p, [e.target.name]: e.target.value }));
 
+  // Barrio y ciudad se completan solos con lo que devuelve el mapa (se pueden corregir).
+  useEffect(() => {
+    if (!dir.geo) return;
+    setForm(p => ({
+      ...p,
+      barrio: dir.geo.barrio || p.barrio,
+      ciudad: dir.geo.ciudad || p.ciudad,
+    }));
+  }, [dir.geo?.lat, dir.geo?.lng]);
+
   const handleSubmit = async e => {
     e.preventDefault();
     setError('');
     if (form.password !== form.confirmar) { setError('Las contraseñas no coinciden'); return; }
     if (form.password.length < 6) { setError('La contraseña debe tener al menos 6 caracteres'); return; }
+    if (form.telefono.replace(/\D/g, '').length < 8) { setError('Ingresá un teléfono válido, con el código de área (ej: 381 123-4567)'); return; }
 
     setLoading(true);
+
+    // La dirección es opcional, pero si la cargó tiene que existir de verdad.
+    // Se verifica ANTES de crear la cuenta para no dejarla a medias.
+    const tieneDireccion = dir.direccion.trim().length > 0;
+    let geo = null;
+    if (tieneDireccion) {
+      const verif = await dir.asegurar();
+      if (!verif || verif.estado === 'error' || verif.estado === 'idle') {
+        setError('No pudimos encontrar tu dirección. Revisá que esté bien escrita, o marcala en el mapa.');
+        setLoading(false);
+        return;
+      }
+      geo = verif.geo;
+    }
+
+    const perfil = {
+      nombre:        form.nombre.trim(),
+      apellido:      form.apellido.trim(),
+      telefono:      form.telefono.trim(),
+      direccion:     tieneDireccion ? dir.direccion.trim() : '',
+      depto:         tieneDireccion ? dir.depto.trim() : '',
+      barrio:        form.barrio.trim(),
+      ciudad:        form.ciudad.trim(),
+      direccion_lat: geo?.lat ?? null,
+      direccion_lng: geo?.lng ?? null,
+    };
+
     const supabase = createClient();
 
+    // Todos los datos viajan con la cuenta: con la confirmación por email todavía
+    // no hay sesión y la base no deja escribir en `clientes` desde acá, así que
+    // se completan al primer ingreso (ver cargarPerfil).
     const { data, error: err } = await supabase.auth.signUp({
-      email: form.email,
+      email: form.email.trim(),
       password: form.password,
-      options: { data: { nombre: form.nombre } },
+      options: { data: perfil },
     });
 
     if (err) {
@@ -39,18 +82,17 @@ export default function RegistroPage() {
       return;
     }
 
-    // Actualizar el registro en clientes con todos los datos
-    if (data.user) {
-      await supabase.from('clientes').upsert({
-        id:        data.user.id,
-        email:     form.email,
-        nombre:    form.nombre,
-        apellido:  form.apellido,
-        telefono:  form.telefono,
-        direccion: form.direccion,
-        barrio:    form.barrio,
-        ciudad:    form.ciudad,
-      });
+    // Con la confirmación por email activa, Supabase no avisa si el mail ya existe:
+    // devuelve un usuario "falso" sin identidades.
+    if (data.user && Array.isArray(data.user.identities) && data.user.identities.length === 0) {
+      setError('Ya existe una cuenta con ese email');
+      setLoading(false);
+      return;
+    }
+
+    // Si ya hay sesión (confirmación desactivada), se guarda en el momento.
+    if (data.session && data.user) {
+      await guardarPerfil(supabase, data.user.id, perfil);
     }
 
     setOk(true);
@@ -119,24 +161,27 @@ export default function RegistroPage() {
             </div>
 
             <div>
-              <label className="block text-xs font-semibold text-gray-600 mb-1.5">Teléfono / WhatsApp</label>
-              <input name="telefono" value={form.telefono} onChange={handleChange} placeholder="11 XXXX-XXXX" className="input" type="tel" />
+              <label className="block text-xs font-semibold text-gray-600 mb-1.5">Teléfono / WhatsApp *</label>
+              <input name="telefono" value={form.telefono} onChange={handleChange} required placeholder="381 123-4567" className="input" type="tel" />
             </div>
 
-            <div className="grid grid-cols-2 gap-3">
-              <div>
-                <label className="block text-xs font-semibold text-gray-600 mb-1.5">Barrio</label>
-                <input name="barrio" value={form.barrio} onChange={handleChange} placeholder="Nombre del barrio" className="input" />
-              </div>
-              <div>
-                <label className="block text-xs font-semibold text-gray-600 mb-1.5">Ciudad</label>
-                <input name="ciudad" value={form.ciudad} onChange={handleChange} placeholder="Ciudad" className="input" />
-              </div>
-            </div>
+            <div className="rounded-2xl border border-gray-100 bg-gray-50/60 p-4">
+              <p className="text-sm font-bold text-gray-900 mb-0.5">Dirección de entrega</p>
+              <p className="text-xs text-gray-500 mb-3">
+                Es opcional, pero si la cargás ahora te la completamos sola cuando pidas delivery.
+              </p>
+              <CampoDireccion dir={dir} />
 
-            <div>
-              <label className="block text-xs font-semibold text-gray-600 mb-1.5">Dirección</label>
-              <input name="direccion" value={form.direccion} onChange={handleChange} placeholder="Calle, número, piso/dpto" className="input" />
+              <div className="grid grid-cols-2 gap-3 mt-4">
+                <div>
+                  <label className="block text-xs font-semibold text-gray-600 mb-1.5">Barrio</label>
+                  <input name="barrio" value={form.barrio} onChange={handleChange} placeholder="Nombre del barrio" className="input" />
+                </div>
+                <div>
+                  <label className="block text-xs font-semibold text-gray-600 mb-1.5">Ciudad</label>
+                  <input name="ciudad" value={form.ciudad} onChange={handleChange} placeholder="Ciudad" className="input" />
+                </div>
+              </div>
             </div>
 
             <div className="grid grid-cols-2 gap-3">

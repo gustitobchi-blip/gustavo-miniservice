@@ -2,13 +2,18 @@
 import { useState, useEffect } from 'react';
 import Link from 'next/link';
 import { useRouter } from 'next/navigation';
-import { User, Phone, MapPin, LogOut, Save, ShoppingBag, ChevronRight, Store, Home } from 'lucide-react';
+import { User, Phone, LogOut, Save, ShoppingBag, ChevronRight, Store, Home } from 'lucide-react';
 import { createClient } from '@/lib/supabase/client';
+import { cargarPerfil, guardarPerfil } from '@/lib/perfil';
+import { useDireccion } from '@/lib/useDireccion';
+import CampoDireccion from '@/components/direccion/CampoDireccion';
 
 export default function PerfilPage() {
   const router = useRouter();
   const [user, setUser]     = useState(null);
-  const [form, setForm]     = useState({ nombre: '', apellido: '', telefono: '', direccion: '', barrio: '', ciudad: '' });
+  const [form, setForm]     = useState({ nombre: '', apellido: '', telefono: '', barrio: '', ciudad: '' });
+  const dir = useDireccion();
+  const [error, setError]   = useState('');
   const [loading, setLoading] = useState(true);
   const [saving, setSaving]   = useState(false);
   const [saved, setSaved]     = useState(false);
@@ -20,33 +25,63 @@ export default function PerfilPage() {
       if (!user) { router.push('/cuenta/login'); return; }
       setUser(user);
 
-      const { data } = await supabase.from('clientes').select('*').eq('id', user.id).single();
-      if (data) setForm({
+      const data = await cargarPerfil(supabase, user);
+      setForm({
         nombre:    data.nombre    || '',
         apellido:  data.apellido  || '',
         telefono:  data.telefono  || '',
-        direccion: data.direccion || '',
         barrio:    data.barrio    || '',
         ciudad:    data.ciudad    || '',
+      });
+      dir.cargar({
+        direccion: data.direccion,
+        depto:     data.depto,
+        lat:       data.direccion_lat,
+        lng:       data.direccion_lng,
       });
       setLoading(false);
     };
     load();
   }, []);
 
+  // Si el cliente cambia la dirección, barrio y ciudad se actualizan con lo que
+  // devuelve el mapa (se pueden corregir a mano).
+  useEffect(() => {
+    if (!dir.geo) return;
+    setForm(p => ({ ...p, barrio: dir.geo.barrio || p.barrio, ciudad: dir.geo.ciudad || p.ciudad }));
+  }, [dir.geo?.lat, dir.geo?.lng]);
+
   const handleSave = async e => {
     e.preventDefault();
+    setError('');
     setSaving(true);
-    const supabase = createClient();
-    await supabase.from('clientes').update({
-      nombre:    form.nombre,
-      apellido:  form.apellido,
-      telefono:  form.telefono,
-      direccion: form.direccion,
-      barrio:    form.barrio,
-      ciudad:    form.ciudad,
-    }).eq('id', user.id);
+
+    // Si hay dirección, tiene que existir de verdad.
+    const tieneDireccion = dir.direccion.trim().length > 0;
+    let geo = null;
+    if (tieneDireccion) {
+      const verif = await dir.asegurar();
+      if (!verif || verif.estado === 'error' || verif.estado === 'idle') {
+        setError('No pudimos encontrar tu dirección. Revisá que esté bien escrita, o marcala en el mapa.');
+        setSaving(false);
+        return;
+      }
+      geo = verif.geo;
+    }
+
+    const { ok } = await guardarPerfil(createClient(), user.id, {
+      nombre:        form.nombre.trim(),
+      apellido:      form.apellido.trim(),
+      telefono:      form.telefono.trim(),
+      direccion:     tieneDireccion ? dir.direccion.trim() : '',
+      depto:         tieneDireccion ? dir.depto.trim() : '',
+      barrio:        form.barrio.trim(),
+      ciudad:        form.ciudad.trim(),
+      direccion_lat: geo?.lat ?? null,
+      direccion_lng: geo?.lng ?? null,
+    });
     setSaving(false);
+    if (!ok) { setError('No pudimos guardar tus datos. Probá de nuevo.'); return; }
     setSaved(true);
     setTimeout(() => setSaved(false), 2500);
   };
@@ -94,6 +129,10 @@ export default function PerfilPage() {
       <div className="card p-6">
         <h2 className="font-bold text-gray-900 text-lg mb-5">Datos personales</h2>
 
+        {error && (
+          <div className="bg-red-50 border border-red-200 text-red-700 text-sm px-4 py-3 rounded-xl mb-5">{error}</div>
+        )}
+
         {saved && (
           <div className="bg-green-50 border border-green-200 text-green-700 text-sm px-4 py-3 rounded-xl mb-5">
             ✓ Datos guardados correctamente
@@ -122,17 +161,13 @@ export default function PerfilPage() {
             <div className="relative">
               <Phone className="absolute left-3 top-1/2 -translate-y-1/2 w-4 h-4 text-gray-400" />
               <input value={form.telefono} onChange={e => setForm(p => ({ ...p, telefono: e.target.value }))}
-                className="input pl-10" placeholder="11 XXXX-XXXX" type="tel" />
+                className="input pl-10" placeholder="381 123-4567" type="tel" />
             </div>
           </div>
 
           <div>
-            <label className="block text-xs font-semibold text-gray-600 mb-1.5">Dirección</label>
-            <div className="relative">
-              <MapPin className="absolute left-3 top-3 w-4 h-4 text-gray-400" />
-              <textarea value={form.direccion} onChange={e => setForm(p => ({ ...p, direccion: e.target.value }))}
-                className="input pl-10 resize-none" rows={2} placeholder="Calle, número, piso/dpto" />
-            </div>
+            <p className="text-xs font-semibold text-gray-600 mb-2">Dirección de entrega</p>
+            <CampoDireccion dir={dir} />
           </div>
 
           <div className="grid sm:grid-cols-2 gap-4">

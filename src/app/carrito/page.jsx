@@ -10,7 +10,10 @@ import { useCart } from '@/context/CartContext';
 import { formatPrecio } from '@/lib/productos';
 import { esPorPeso, pasoDe, formatCantidad, subtotalLinea, redondearKg, MAX_KG } from '@/lib/peso';
 import { createClient } from '@/lib/supabase/client';
-import { distanciaDesdeLocal, RADIO_MAXIMO_KM, COSTO_ENVIO } from '@/lib/envio';
+import { COSTO_ENVIO } from '@/lib/envio';
+import { cargarPerfil } from '@/lib/perfil';
+import { useDireccion } from '@/lib/useDireccion';
+import CampoDireccion from '@/components/direccion/CampoDireccion';
 
 // Únicos dos métodos de pago: Mercado Pago (online) o efectivo (al recibir/retirar)
 const METODOS_PAGO = [
@@ -35,11 +38,12 @@ export default function CarritoPage() {
   const [verificandoPago, setVerificando]   = useState(false);
   const [form, setForm] = useState({
     nombre: '', apellido: '', telefono: '', email: '',
-    direccion: '', depto: '', nota: '', notaCadete: '',
+    nota: '', notaCadete: '',
   });
-  const [geo, setGeo]             = useState(null); // { lat, lng, distanciaKm, direccionFormateada }
-  const [geoStatus, setGeoStatus] = useState('idle'); // idle | loading | ok | fuera_rango | error
-  const [geoErrorMsg, setGeoErrorMsg] = useState('');
+  // Dirección de entrega: verificación, mapa y distancia (ver useDireccion).
+  const dir = useDireccion();
+  const geo = dir.geo;               // { lat, lng, distanciaKm, direccionFormateada }
+  const geoStatus = dir.estado;      // idle | loading | ok | fuera_rango | error
 
   const costoEnvio    = entrega === 'delivery' && geoStatus === 'ok' ? COSTO_ENVIO : 0;
   const totalConEnvio = totalPrecio + costoEnvio;
@@ -98,41 +102,7 @@ export default function CarritoPage() {
 
   const handleFormChange = e => {
     setMpError(null);
-    if (e.target.name === 'direccion') {
-      setGeo(null);
-      setGeoStatus('idle');
-      setGeoErrorMsg('');
-    }
     setForm(p => ({ ...p, [e.target.name]: e.target.value }));
-  };
-
-  // Geocodifica la dirección y calcula si está dentro del radio de reparto.
-  const verificarDireccion = async () => {
-    if (!form.direccion.trim()) return;
-    setGeoStatus('loading');
-    setGeoErrorMsg('');
-    try {
-      const res = await fetch('/api/geocodificar', {
-        method:  'POST',
-        headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ direccion: form.direccion }),
-      });
-      const data = await res.json();
-      if (!res.ok || data.error) {
-        setGeo(null);
-        setGeoStatus('error');
-        setGeoErrorMsg(data.error || 'No pudimos verificar la dirección.');
-        return;
-      }
-      const distanciaKm = distanciaDesdeLocal(data.lat, data.lng);
-      setGeo({ lat: data.lat, lng: data.lng, distanciaKm, direccionFormateada: data.direccionFormateada });
-      setGeoStatus(distanciaKm > RADIO_MAXIMO_KM ? 'fuera_rango' : 'ok');
-    } catch (err) {
-      console.error('Error al verificar dirección:', err);
-      setGeo(null);
-      setGeoStatus('error');
-      setGeoErrorMsg('No pudimos verificar la dirección. Probá de nuevo.');
-    }
   };
 
   // Pre-completar datos si el usuario está logueado
@@ -140,17 +110,23 @@ export default function CarritoPage() {
     const supabase = createClient();
     const { data: { user } } = await supabase.auth.getUser();
     if (!user) return;
-    const { data } = await supabase.from('clientes').select('*').eq('id', user.id).single();
-    if (data) {
-      setForm(p => ({
-        ...p,
-        nombre:    data.nombre    || '',
-        apellido:  data.apellido  || '',
-        telefono:  data.telefono  || '',
-        email:     user.email     || '',
-        direccion: data.direccion || '',
-      }));
-    }
+    const data = await cargarPerfil(supabase, user);
+    // Sólo completa lo que está vacío: si el cliente ya escribió algo (o vuelve
+    // del paso 1), no se le pisa.
+    setForm(p => ({
+      ...p,
+      nombre:   p.nombre   || data.nombre   || '',
+      apellido: p.apellido || data.apellido || '',
+      telefono: p.telefono || data.telefono || '',
+      email:    p.email    || user.email    || '',
+    }));
+    // La misma dirección que cargó al registrarse (o en Mi cuenta), ya verificada.
+    dir.cargar({
+      direccion: data.direccion,
+      depto:     data.depto,
+      lat:       data.direccion_lat,
+      lng:       data.direccion_lng,
+    });
   };
 
   const irAPaso2 = async () => {
@@ -171,7 +147,7 @@ export default function CarritoPage() {
         forma_entrega:     entrega,
         forma_pago:        metodoPago,
         direccion_entrega: entrega === 'delivery'
-          ? (form.depto.trim() ? `${form.direccion}, ${form.depto.trim()}` : form.direccion)
+          ? (dir.depto.trim() ? `${dir.direccion.trim()}, ${dir.depto.trim()}` : dir.direccion.trim())
           : null,
         direccion_lat:     entrega === 'delivery' ? geo?.lat ?? null : null,
         direccion_lng:     entrega === 'delivery' ? geo?.lng ?? null : null,
@@ -427,7 +403,7 @@ export default function CarritoPage() {
                   </div>
                   <div>
                     <label className="block text-xs font-semibold text-gray-600 mb-1.5">Teléfono *</label>
-                    <input name="telefono" value={form.telefono} onChange={handleFormChange} className="input" placeholder="11 XXXX-XXXX" type="tel" required />
+                    <input name="telefono" value={form.telefono} onChange={handleFormChange} className="input" placeholder="381 123-4567" type="tel" required />
                   </div>
                   <div>
                     <label className="block text-xs font-semibold text-gray-600 mb-1.5">Email</label>
@@ -436,60 +412,7 @@ export default function CarritoPage() {
 
                   {entrega === 'delivery' && (
                     <div className="sm:col-span-2">
-                      <div className="grid sm:grid-cols-3 gap-4">
-                        <div className="sm:col-span-2">
-                          <label className="block text-xs font-semibold text-gray-600 mb-1.5">Calle y número *</label>
-                          <input
-                            name="direccion"
-                            value={form.direccion}
-                            onChange={handleFormChange}
-                            onBlur={verificarDireccion}
-                            className="input"
-                            placeholder="Ej: Corrientes 99"
-                            required
-                          />
-                        </div>
-                        <div>
-                          <label className="block text-xs font-semibold text-gray-600 mb-1.5">Piso / Depto</label>
-                          <input
-                            name="depto"
-                            value={form.depto}
-                            onChange={handleFormChange}
-                            className="input"
-                            placeholder="Ej: 3° B"
-                          />
-                        </div>
-                      </div>
-                      {geoStatus === 'loading' && (
-                        <p className="text-xs text-gray-400 mt-1.5 flex items-center gap-1.5">
-                          <span className="w-3 h-3 border-2 border-gray-300 border-t-transparent rounded-full animate-spin flex-shrink-0" />
-                          Verificando dirección...
-                        </p>
-                      )}
-                      {geoStatus === 'ok' && geo && (
-                        <div className="mt-1.5">
-                          <p className="text-xs text-green-600 flex items-start gap-1.5">
-                            <CheckCircle2 className="w-3.5 h-3.5 flex-shrink-0 mt-0.5" />
-                            Llegamos hasta ahí ({geo.distanciaKm.toFixed(1)} km del local) — envío {formatPrecio(COSTO_ENVIO)}
-                          </p>
-                          <p className="text-xs text-gray-400 mt-0.5 ml-5">Dirección encontrada: {geo.direccionFormateada}</p>
-                        </div>
-                      )}
-                      {geoStatus === 'fuera_rango' && geo && (
-                        <div className="mt-1.5">
-                          <p className="text-xs text-red-600 flex items-start gap-1.5">
-                            <AlertCircle className="w-3.5 h-3.5 flex-shrink-0 mt-0.5" />
-                            Esa dirección está a {geo.distanciaKm.toFixed(1)} km del local, fuera de nuestro radio de reparto ({RADIO_MAXIMO_KM} km). Elegí "Retiro en el local" o probá con otra dirección.
-                          </p>
-                          <p className="text-xs text-gray-400 mt-0.5 ml-5">Interpretamos: {geo.direccionFormateada}</p>
-                        </div>
-                      )}
-                      {geoStatus === 'error' && (
-                        <p className="text-xs text-red-600 mt-1.5 flex items-start gap-1.5">
-                          <AlertCircle className="w-3.5 h-3.5 flex-shrink-0 mt-0.5" />
-                          {geoErrorMsg}
-                        </p>
-                      )}
+                      <CampoDireccion dir={dir} mostrarEnvio requerido />
                     </div>
                   )}
 
