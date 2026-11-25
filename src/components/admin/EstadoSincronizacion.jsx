@@ -2,6 +2,7 @@
 
 import { useEffect, useState } from 'react';
 import { RefreshCw, CheckCircle2, AlertTriangle, XCircle } from 'lucide-react';
+import { createClient } from '@/lib/supabase/client';
 import { estadoSincronizacion, cuandoFue, nombreTurno } from '@/lib/sincronizacion';
 
 const ESTILO = {
@@ -21,7 +22,11 @@ export default function EstadoSincronizacion() {
 
   useEffect(() => {
     let cancelado = false;
-    fetch('/api/admin/sincronizacion', { cache: 'no-store' })
+    createClient().auth.getSession()
+      .then(({ data: { session } }) => fetch('/api/admin/sincronizacion', {
+        cache: 'no-store',
+        headers: session?.access_token ? { Authorization: `Bearer ${session.access_token}` } : {},
+      }))
       .then(res => (res.ok ? res.json() : Promise.reject(res.status)))
       .then(json => { if (!cancelado) setCorridas(json.corridas || []); })
       .catch(() => { if (!cancelado) setFalla(true); });
