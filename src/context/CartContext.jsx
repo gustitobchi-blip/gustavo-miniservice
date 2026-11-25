@@ -107,11 +107,15 @@ export function CartProvider({ children }) {
   // carrito vacío del arranque pisaría lo que había.
   const [hidratado, setHidratado] = useState(false);
   const [recuperado, setRecuperado] = useState(false);
+  // Se vació a propósito (compra terminada) antes de que se recuperara lo
+  // guardado: al volver de Mercado Pago la página del carrito vacía primero y
+  // recién después corre la recuperación, que si no volvía a llenarlo.
+  const vaciado = useRef(false);
 
   // ── Recuperar lo que había ────────────────────────────────────
   useEffect(() => {
     const supabase = createClient();
-    const locales = leerLocal();
+    const locales = vaciado.current ? [] : leerLocal();
     if (locales.length) dispatch({ type: 'SET_ITEMS', payload: locales });
 
     const sincronizar = async () => {
@@ -129,7 +133,7 @@ export function CartProvider({ children }) {
           const guardados = Array.isArray(data?.items) ? data.items : [];
           // Si en este dispositivo no hay nada, se recupera el carrito que
           // quedó abierto en otro lado.
-          if (!locales.length && guardados.length) {
+          if (!vaciado.current && !locales.length && guardados.length) {
             dispatch({ type: 'SET_ITEMS', payload: guardados });
             setRecuperado(true);
           }
@@ -137,6 +141,9 @@ export function CartProvider({ children }) {
       } catch {
         // Sin la tabla `carritos` el carrito sigue andando, sólo que local.
       }
+      // Al hidratar se guarda el carrito vacío (local y nube) y desde ahí
+      // todo vuelve a funcionar normal, por ejemplo si después inicia sesión.
+      vaciado.current = false;
       setHidratado(true);
     };
 
@@ -196,7 +203,11 @@ export function CartProvider({ children }) {
 
   const removeItem      = (id)             => dispatch({ type: 'REMOVE_ITEM',      payload: id });
   const updateCantidad  = (id, cantidad)   => dispatch({ type: 'UPDATE_CANTIDAD',  payload: { id, cantidad } });
-  const clearCart       = ()               => dispatch({ type: 'CLEAR_CART' });
+  const clearCart = () => {
+    if (!hidratado) vaciado.current = true;
+    try { localStorage.removeItem(CLAVE_LOCAL); } catch { /* ventana privada */ }
+    dispatch({ type: 'CLEAR_CART' });
+  };
   const toggleCart      = ()               => dispatch({ type: 'TOGGLE_CART' });
   const openCart        = ()               => dispatch({ type: 'OPEN_CART' });
   const closeCart       = ()               => dispatch({ type: 'CLOSE_CART' });
