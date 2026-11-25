@@ -7,8 +7,8 @@ export const dynamic = 'force-dynamic';
  * La tabla `sync_log` no se puede leer desde el navegador (no tiene permisos
  * públicos), así que se lee acá con la clave del servidor, sólo para admins.
  *
- * El panel manda la sesión en `Authorization: Bearer <token>`: la versión de
- * @supabase/ssr instalada no lee la sesión desde las cookies en rutas de API.
+ * El panel manda la sesión en `Authorization: Bearer <token>` (no depende de
+ * las cookies).
  */
 export async function GET(request) {
   const token = (request.headers.get('authorization') || '').replace(/^Bearer\s+/i, '');
