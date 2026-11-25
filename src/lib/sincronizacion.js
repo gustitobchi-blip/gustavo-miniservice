@@ -60,7 +60,8 @@ export function estadoSincronizacion(corridas, ahora = new Date()) {
 /** "hoy a las 17:15", "ayer a las 8:15", "sáb 21/11 a las 17:15" */
 export function cuandoFue(fecha, ahora = new Date()) {
   const f = new Date(fecha);
-  const hora = f.toLocaleTimeString('es-AR', { hour: '2-digit', minute: '2-digit' });
+  // 24 h ("17:15"): con es-AR el navegador a veces muestra "05:15 p. m.".
+  const hora = `${f.getHours()}:${String(f.getMinutes()).padStart(2, '0')}`;
   const dia = d => d.toLocaleDateString('en-CA');
   const ayer = new Date(ahora); ayer.setDate(ayer.getDate() - 1);
   if (dia(f) === dia(ahora)) return `hoy a las ${hora}`;
