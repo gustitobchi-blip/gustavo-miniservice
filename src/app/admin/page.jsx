@@ -9,6 +9,7 @@ import {
 import { createClient } from '@/lib/supabase/client';
 import { formatPrecio } from '@/lib/productos';
 import { etiquetaEstado } from '@/lib/estados';
+import EstadoSincronizacion from '@/components/admin/EstadoSincronizacion';
 
 // Un pedido cancelado o esperando que MP acredite no es una venta.
 const ESTADOS_EXCLUIDOS = ['cancelado', 'pendiente_mp'];
@@ -277,6 +278,9 @@ export default function AdminDashboard() {
 
       <div className="max-w-6xl mx-auto px-4 py-8">
         <h1 className="text-2xl font-black text-gray-900 mb-6">Dashboard</h1>
+
+        {/* ¿La página muestra los precios y el stock del último archivo del súper? */}
+        <EstadoSincronizacion />
 
         {/* Stats — la tarjeta no es clickeable, solo el botón de abajo */}
         <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-4 gap-4 mb-8">
